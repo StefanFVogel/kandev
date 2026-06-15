@@ -106,6 +106,7 @@ System pages (Radarr/Sonarr-style) for status, disk usage, database maintenance,
 |---|---|
 | [improve-kandev](improve-kandev/spec.md) | draft |
 | [homebrew-core](homebrew-core/spec.md) | draft |
+| [native-kandev-cli](native-kandev-cli/spec.md) | draft |
 | [public-share-links](public-share-links/spec.md) | draft |
 | [ssh-executor](ssh-executor/spec.md) | draft |
 | [cli-mode-parity](cli-mode-parity/spec.md) | draft |
@@ -115,7 +116,7 @@ System pages (Radarr/Sonarr-style) for status, disk usage, database maintenance,
 ## Conventions
 
 - **Spec layout.** Umbrella specs live as flat `.md` files under the umbrella directory (`docs/specs/office/agents.md`). Standalone specs use a folder (`docs/specs/improve-kandev/spec.md`).
-- **Plans are not specs.** Implementation plans (`plan.md`) are working files, gitignored. Specs are the durable requirements.
+- **Plans are not specs.** Implementation plans (`plan.md`) are tracked working documents that describe how an approved spec will be built. Specs remain the durable requirements.
 - **Bug fixes are not specs.** Bugs produce a regression test plus an ADR if they encoded a new convention. See `/fix` skill.
 - **Architecture decisions are not specs.** ADRs live under `docs/decisions/`. See `/record decision`.
 

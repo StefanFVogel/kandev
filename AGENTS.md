@@ -69,7 +69,7 @@ Every code change must include tests for new or changed logic. Backend: `*_test.
 ### Knowledge
 - **Specs:** Feature specs live in `docs/specs/<slug>/spec.md` — the "what & why" of a feature, written before coding. Optional siblings: `plan.md` (how), `notes.md` (post-ship). Use `/spec` to write or update a spec. See `docs/specs/INDEX.md`.
 - **Decisions:** Architecture decisions are recorded in `docs/decisions/`. Read `docs/decisions/INDEX.md` for an overview. When making significant architectural choices, create a new ADR via `/record decision`.
-- **Plans:** Implementation plans are generated from specs via `/plan` and saved to `docs/specs/<slug>/plan.md`. Plans are gitignored (working files, not committed) — only specs and ADRs are tracked.
+- **Plans:** Implementation plans are generated from specs via `/plan` and saved to `docs/specs/<slug>/plan.md`. Plans are tracked alongside specs so implementation context survives across agents and PRs.
 
 ### Plan Implementation
 - After implementing a plan, run `make fmt` first to format code, then run `make typecheck test lint` to verify the changes. Formatting must come first because formatters may split lines, which can trigger complexity linter warnings.

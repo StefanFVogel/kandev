@@ -114,8 +114,6 @@ normalized-*.jsonl
 .playwright-cli/
 /.claude/scheduled_tasks.lock
 
-# implementation plans (reviewed locally, not committed)
-docs/specs/*/plan.md
 docs/plans/
 
 # Local worktrees (not the backend-managed tree under ~/.kandev)

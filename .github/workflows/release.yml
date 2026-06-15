@@ -281,35 +281,9 @@ jobs:
           path: dist/web
           include-hidden-files: true
 
-  build-cli:
-    name: Build & bundle CLI
-    needs: prepare
-    if: ${{ !inputs.dry_run }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.prepare.outputs.tag }}
-      - uses: pnpm/action-setup@v5
-        with:
-          version: "9.15.9"
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-          cache: pnpm
-          cache-dependency-path: apps/pnpm-lock.yaml
-      - name: Install dependencies
-        run: pnpm -C apps install --frozen-lockfile
-      - name: Build and bundle CLI
-        run: bash scripts/release/package-cli.sh
-      - uses: actions/upload-artifact@v5
-        with:
-          name: cli-bundle
-          path: dist/kandev/cli
-
   build-bundles:
     name: Build platform bundle (${{ matrix.platform }})
-    needs: [prepare, build-web, build-cli]
+    needs: [prepare, build-web]
     if: ${{ !inputs.dry_run }}
     strategy:
       matrix:
@@ -352,10 +326,6 @@ jobs:
         with:
           name: web-bundle
           path: dist/web
-      - uses: actions/download-artifact@v5
-        with:
-          name: cli-bundle
-          path: dist/kandev/cli
 
       - name: Install cross-compilation tools
         if: matrix.cc
@@ -410,12 +380,6 @@ jobs:
           cp apps/backend/bin/agentctl-linux-amd64 dist/kandev/bin/
           mkdir -p dist/kandev/web
           cp -R dist/web/. dist/kandev/web/
-          # cli/ was already placed by the build-cli job (downloaded above).
-          # actions/upload-artifact + download-artifact zip-roundtrip strips the
-          # executable bit, so re-apply it. The Homebrew formula's wrapper at
-          # bin/kandev does `exec libexec/cli/bin/cli.js`, which fails with
-          # "Permission denied" if this isn't +x.
-          chmod +x dist/kandev/cli/bin/cli.js
           cd dist
           tar -czf "kandev-${{ matrix.platform }}.tar.gz" kandev
           shasum -a 256 "kandev-${{ matrix.platform }}.tar.gz" > "kandev-${{ matrix.platform }}.tar.gz.sha256"
