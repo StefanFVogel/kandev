@@ -41,24 +41,16 @@ function addCumulativeDiffFiles(
   files: CumulativeDiff["files"],
   gitStatusFiles: Record<string, FileInfo> | null,
 ) {
-  // Multi-repo: backend always stamps each per-file payload with
-  // `repository_name` + the repo-relative `path`. Single-repo (or legacy)
-  // payloads keep the bare path on the map key. We trust `file.path` to be
-  // set in the multi-repo shape — a missing `path` would be a backend
-  // contract violation and indicates the caller is on an outdated agentctl;
-  // surface it loudly via a console warning rather than silently injecting
-  // the composite map key into the displayed path (which used to corrupt
-  // the file tree node names).
+  // Multi-repo: backend stamps each per-file payload with `repository_name`
+  // + the repo-relative `path`, and uses a NUL-composite `<repo>\x00<path>`
+  // map key. Single-repo payloads from `parseCommitDiff` carry the bare path
+  // only on the map key (no `path` field on the value). Prefer the stamped
+  // value so the composite key doesn't bleed into the displayed path, and
+  // fall back to the map key so single-repo files aren't silently dropped.
   for (const [mapKey, file] of Object.entries(files)) {
     const repoName = file.repository_name;
-    const path = file.path;
-    if (!path) {
-      console.warn("[review] cumulative diff entry missing `path` field; skipping", {
-        mapKey,
-        repoName,
-      });
-      continue;
-    }
+    const path = file.path ?? mapKey;
+    if (!path) continue;
     const key = fileMapKey(path, repoName);
     if (fileMap.has(key)) continue;
     const diff = file.diff ? normalizeDiffContent(file.diff) : "";
@@ -140,15 +132,22 @@ function addPRFiles(fileMap: Map<string, ReviewFile>, files: PRDiffFile[]) {
   }
 }
 
-function buildAllFiles(
+export function buildAllFiles(
   gitStatusFiles: Record<string, FileInfo> | null,
   cumulativeDiff: CumulativeDiff | null,
   prDiffFiles?: PRDiffFile[],
 ): ReviewFile[] {
   const fileMap = new Map<string, ReviewFile>();
-  if (prDiffFiles) addPRFiles(fileMap, prDiffFiles);
-  if (cumulativeDiff?.files) addCumulativeDiffFiles(fileMap, cumulativeDiff.files, gitStatusFiles);
+  // Order matters and must match `buildReviewSources` (the Changes panel
+  // builder): uncommitted FIRST so its always-fresh WS-pushed diff content
+  // wins over the polled cumulative diff for files that exist in both. Before
+  // this, the dialog and the panel disagreed on `datasource.ts`-style files
+  // (panel: fresh worktree content from `git-status`, dialog: stale cumulative
+  // diff snapshot from the last fetch) — the dialog appeared to show outdated
+  // content even though the cumulative-diff hook was successfully refetching.
   if (gitStatusFiles) addUncommittedFiles(fileMap, gitStatusFiles);
+  if (cumulativeDiff?.files) addCumulativeDiffFiles(fileMap, cumulativeDiff.files, gitStatusFiles);
+  if (prDiffFiles) addPRFiles(fileMap, prDiffFiles);
   return Array.from(fileMap.values()).sort((a, b) => a.path.localeCompare(b.path));
 }
 

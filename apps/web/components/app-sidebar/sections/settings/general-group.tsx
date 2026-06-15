@@ -1,11 +1,10 @@
 "use client";
 
-import { IconBell, IconCode, IconSettings } from "@tabler/icons-react";
+import { IconSettings } from "@tabler/icons-react";
+import { GENERAL_NAV_ITEMS } from "@/components/settings/general-nav";
 import { SettingsGroup, SettingsLeaf } from "./settings-nav-primitives";
 
 const GENERAL_HREF = "/settings/general";
-const NOTIFICATIONS_HREF = "/settings/general/notifications";
-const EDITORS_HREF = "/settings/general/editors";
 
 type GeneralGroupProps = {
   pathname: string;
@@ -23,20 +22,16 @@ export function GeneralGroup({ pathname, expanded, onToggle }: GeneralGroupProps
       expanded={expanded}
       onToggle={onToggle}
     >
-      <SettingsLeaf
-        href={NOTIFICATIONS_HREF}
-        label="Notifications"
-        icon={IconBell}
-        isActive={pathname === NOTIFICATIONS_HREF}
-        depth={1}
-      />
-      <SettingsLeaf
-        href={EDITORS_HREF}
-        label="Editors"
-        icon={IconCode}
-        isActive={pathname === EDITORS_HREF}
-        depth={1}
-      />
+      {GENERAL_NAV_ITEMS.map(({ href, label, icon }) => (
+        <SettingsLeaf
+          key={href}
+          href={href}
+          label={label}
+          icon={icon}
+          isActive={pathname === href}
+          depth={1}
+        />
+      ))}
     </SettingsGroup>
   );
 }
