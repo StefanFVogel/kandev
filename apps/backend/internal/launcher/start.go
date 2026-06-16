@@ -96,16 +96,16 @@ func runManagedApp(cfg managedAppConfig) int {
 		fmt.Fprintln(os.Stderr, "[kandev] "+err.Error())
 		return 1
 	}
-	fmt.Println("[kandev] starting backend...")
+	fmt.Fprintln(os.Stderr, "[kandev] starting backend...")
 	if err := waitForHealth(cfg.Ports.BackendURL, backend, healthTimeout(healthTimeoutReleaseMS), dumpLogs); err != nil {
 		supervisor.shutdown("backend health failure")
 		fmt.Fprintln(os.Stderr, "[kandev] "+err.Error())
 		return 1
 	}
-	fmt.Printf("[kandev] backend ready at %s\n", cfg.Ports.BackendURL)
+	fmt.Fprintf(os.Stderr, "[kandev] backend ready at %s\n", cfg.Ports.BackendURL)
 
 	webURL := fmt.Sprintf("http://localhost:%d", cfg.Ports.WebPort)
-	fmt.Println("[kandev] starting web...")
+	fmt.Fprintln(os.Stderr, "[kandev] starting web...")
 	web, _, err := startProcess("node", []string{cfg.WebServer}, cfg.WebCWD, webEnv(cfg.Ports, true, cfg.Opts.Debug), !showOutput, "web", supervisor)
 	if err != nil {
 		supervisor.shutdown("web start failure")
@@ -118,10 +118,10 @@ func runManagedApp(cfg managedAppConfig) int {
 		return 1
 	}
 	if cfg.Opts.Headless {
-		fmt.Printf("[kandev] ready (headless) at %s\n", cfg.Ports.BackendURL)
+		fmt.Fprintf(os.Stderr, "[kandev] ready (headless) at %s\n", cfg.Ports.BackendURL)
 		return waitForAppExit(supervisor, backend, web)
 	}
-	fmt.Println("[kandev] open: " + cfg.Ports.BackendURL)
+	fmt.Fprintln(os.Stderr, "[kandev] open: "+cfg.Ports.BackendURL)
 	openBrowser(cfg.Ports.BackendURL)
 	return waitForAppExit(supervisor, backend, web)
 }
@@ -198,14 +198,14 @@ func ensureStandaloneAssets(repoRoot, webDir string) error {
 }
 
 func logStartup(header string, ports portConfig, dbPath, logLevel string) {
-	fmt.Println("[kandev] " + header)
-	fmt.Println("[kandev] url:", ports.BackendURL)
-	fmt.Println("[kandev] mcp:", ports.BackendURL+"/mcp")
+	fmt.Fprintln(os.Stderr, "[kandev] "+header)
+	fmt.Fprintln(os.Stderr, "[kandev] url:", ports.BackendURL)
+	fmt.Fprintln(os.Stderr, "[kandev] mcp:", ports.BackendURL+"/mcp")
 	if dbPath != "" {
-		fmt.Println("[kandev] db:", dbPath)
+		fmt.Fprintln(os.Stderr, "[kandev] db:", dbPath)
 	}
 	if logLevel != "" {
-		fmt.Println("[kandev] log level:", logLevel)
+		fmt.Fprintln(os.Stderr, "[kandev] log level:", logLevel)
 	}
 }
 

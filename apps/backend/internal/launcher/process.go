@@ -35,7 +35,7 @@ func (s *processSupervisor) add(proc *managedProcess) {
 }
 
 func (s *processSupervisor) shutdown(reason string) {
-	fmt.Printf("[kandev] shutting down (%s)...\n", reason)
+	fmt.Fprintf(os.Stderr, "[kandev] shutting down (%s)...\n", reason)
 	s.mu.Lock()
 	children := append([]*managedProcess(nil), s.children...)
 	s.mu.Unlock()

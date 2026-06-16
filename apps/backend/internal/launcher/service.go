@@ -166,22 +166,25 @@ func runLinuxService(args serviceArgs) int {
 		}
 		return 0
 	case actionLogs:
-		journalArgs := []string{"-n", "200", "--no-pager"}
-		if args.System {
-			journalArgs = append([]string{"-u", serviceUnitName}, journalArgs...)
-		} else {
-			journalArgs = append([]string{"--user-unit", serviceUnitName}, journalArgs...)
-		}
-		if args.Follow {
-			journalArgs = journalArgs[:len(journalArgs)-2]
-			journalArgs = append(journalArgs, "-f")
-		}
-		if err := runCommand("journalctl", journalArgs...); err != nil {
+		if err := runCommand("journalctl", journalctlArgs(args)...); err != nil {
 			return 1
 		}
 		return 0
 	}
 	return 1
+}
+
+func journalctlArgs(args serviceArgs) []string {
+	journalArgs := []string{"-n", "200", "--no-pager"}
+	if args.System {
+		journalArgs = append([]string{"-u", serviceUnitName}, journalArgs...)
+	} else {
+		journalArgs = append([]string{"--user-unit", serviceUnitName}, journalArgs...)
+	}
+	if args.Follow {
+		journalArgs = append(journalArgs, "-f")
+	}
+	return journalArgs
 }
 
 func installSystemd(args serviceArgs, unitPath string) int {
@@ -215,13 +218,13 @@ func installSystemd(args serviceArgs, unitPath string) int {
 		if err := runCommand("systemctl", append(systemctlScope(args.System), string(CommandStart), serviceUnitName)...); err != nil {
 			return 1
 		}
-		fmt.Println("[kandev] service installed and started")
+		fmt.Fprintln(os.Stderr, "[kandev] service installed and started (not enabled at boot)")
 		return 0
 	}
 	if err := runCommand("systemctl", append(systemctlScope(args.System), "enable", "--now", serviceUnitName)...); err != nil {
 		return 1
 	}
-	fmt.Println("[kandev] service enabled and started")
+	fmt.Fprintln(os.Stderr, "[kandev] service enabled and started")
 	return 0
 }
 
@@ -305,10 +308,10 @@ func installLaunchd(args serviceArgs, plistPath, target, domain string) int {
 		if err := runCommand("launchctl", "kickstart", target); err != nil {
 			return 1
 		}
-		fmt.Println("[kandev] service loaded and started")
+		fmt.Fprintln(os.Stderr, "[kandev] service loaded and started (not enabled at boot)")
 		return 0
 	}
-	fmt.Println("[kandev] service loaded and started")
+	fmt.Fprintln(os.Stderr, "[kandev] service loaded, enabled, and started")
 	return 0
 }
 

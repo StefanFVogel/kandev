@@ -34,7 +34,7 @@ func waitForHealth(baseURL string, proc childState, timeout time.Duration, onFai
 			}
 			return fmt.Errorf("backend exited (code %d) before healthcheck passed", code)
 		}
-		resp, err := http.Get(healthURL) //nolint:gosec,noctx
+		resp, err := healthProbeClient(deadline).Get(healthURL) //nolint:gosec,noctx
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
@@ -55,7 +55,7 @@ func waitForURL(url string, proc childState, timeout time.Duration) error {
 		if exited, _ := proc.Exited(); exited {
 			return fmt.Errorf("web process exited before URL became reachable")
 		}
-		resp, err := http.Get(url) //nolint:gosec,noctx
+		resp, err := healthProbeClient(deadline).Get(url) //nolint:gosec,noctx
 		if err == nil {
 			_ = resp.Body.Close()
 			return nil
@@ -63,4 +63,15 @@ func waitForURL(url string, proc childState, timeout time.Duration) error {
 		time.Sleep(300 * time.Millisecond)
 	}
 	return fmt.Errorf("web URL readiness timed out after %s (%s)", timeout, url)
+}
+
+func healthProbeClient(deadline time.Time) *http.Client {
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		remaining = time.Millisecond
+	}
+	if remaining > 300*time.Millisecond {
+		remaining = 300 * time.Millisecond
+	}
+	return &http.Client{Timeout: remaining}
 }

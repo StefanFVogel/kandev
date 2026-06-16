@@ -1,6 +1,7 @@
 package launcher
 
 import (
+	"net"
 	"path/filepath"
 	"testing"
 	"time"
@@ -62,5 +63,35 @@ func TestRestartFailureNotifiesLauncherExit(t *testing.T) {
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("restart failure did not notify launcher exit")
+	}
+
+	if exited, code := backend.Exited(); !exited || code == 0 {
+		t.Fatalf("backend Exited() = (%v, %d), want failed terminal state", exited, code)
+	}
+}
+
+func TestHandleControlConnUsesReadDeadline(t *testing.T) {
+	server, client := net.Pipe()
+	defer func() { _ = client.Close() }()
+	oldTimeout := controlReadTimeout
+	controlReadTimeout = 10 * time.Millisecond
+	t.Cleanup(func() { controlReadTimeout = oldTimeout })
+
+	done := make(chan struct{})
+	go func() {
+		handleControlConn(server, func() {})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("control connection returned before client closed")
+	default:
+	}
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("control connection did not unblock after read deadline")
 	}
 }

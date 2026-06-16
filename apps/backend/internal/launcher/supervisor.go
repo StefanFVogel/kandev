@@ -35,7 +35,11 @@ type restartableBackend struct {
 	current    *managedProcess
 	exitCh     chan int
 	dumpLogs   func()
+	failedExit bool
+	exitCode   int
 }
+
+var controlReadTimeout = 5 * time.Second
 
 func launchRestartableBackend(command string, args []string, cwd string, env []string, quiet bool, ports portConfig, mode string, supervisor *processSupervisor) (*restartableBackend, func(), error) {
 	homeDir := resolveHomeDir()
@@ -87,6 +91,8 @@ func (b *restartableBackend) start() error {
 	b.mu.Lock()
 	b.current = proc
 	b.dumpLogs = dump
+	b.failedExit = false
+	b.exitCode = 0
 	b.mu.Unlock()
 	go func() {
 		<-proc.done
@@ -122,6 +128,10 @@ func (b *restartableBackend) restart() {
 }
 
 func (b *restartableBackend) notifyExit(code int) {
+	b.mu.Lock()
+	b.failedExit = true
+	b.exitCode = code
+	b.mu.Unlock()
 	select {
 	case b.exitCh <- code:
 	default:
@@ -131,8 +141,13 @@ func (b *restartableBackend) notifyExit(code int) {
 func (b *restartableBackend) Exited() (bool, int) {
 	b.mu.Lock()
 	current := b.current
+	failedExit := b.failedExit
+	exitCode := b.exitCode
 	b.mu.Unlock()
 	if current == nil {
+		if failedExit {
+			return true, exitCode
+		}
 		return false, 0
 	}
 	return current.Exited()
@@ -228,6 +243,7 @@ func startControlServer(socket string, onRestart func()) error {
 
 func handleControlConn(conn net.Conn, onRestart func()) {
 	defer func() { _ = conn.Close() }()
+	_ = conn.SetReadDeadline(time.Now().Add(controlReadTimeout))
 	line, err := bufio.NewReader(conn).ReadBytes('\n')
 	if err != nil {
 		return

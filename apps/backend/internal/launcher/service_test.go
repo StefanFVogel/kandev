@@ -1,6 +1,7 @@
 package launcher
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -50,5 +51,23 @@ func TestRenderLaunchdPlistCanDisableBootStart(t *testing.T) {
 
 	if !strings.Contains(plist, "<key>RunAtLoad</key>\n  <false/>") {
 		t.Fatalf("plist should not start at load with no boot start:\n%s", plist)
+	}
+}
+
+func TestJournalctlArgsFollowKeepsLineCount(t *testing.T) {
+	got := journalctlArgs(serviceArgs{Action: actionLogs, Follow: true})
+	want := []string{"--user-unit", serviceUnitName, "-n", "200", "--no-pager", "-f"}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("journalctl args = %#v, want %#v", got, want)
+	}
+}
+
+func TestJournalctlArgsSystemFollowKeepsLineCount(t *testing.T) {
+	got := journalctlArgs(serviceArgs{Action: actionLogs, System: true, Follow: true})
+	want := []string{"-u", serviceUnitName, "-n", "200", "--no-pager", "-f"}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("journalctl args = %#v, want %#v", got, want)
 	}
 }

@@ -8,7 +8,7 @@ Usage:
   kandev start [--port <port>] [--verbose] [--debug]
   kandev [--port <port>] [--verbose] [--debug]
   kandev --dev [--port <port>]
-  kandev service install|uninstall|start|stop|restart|status|logs [--system]
+  kandev service install|uninstall|start|stop|restart|status|logs|config [--system]
 
 Options:
   dev              Use local repo for dev if available.

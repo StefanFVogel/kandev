@@ -14,3 +14,10 @@ func TestHelpDoesNotExposeHiddenBackendMode(t *testing.T) {
 		t.Fatalf("help exposes hidden backend mode:\n%s", help)
 	}
 }
+
+func TestHelpListsServiceConfig(t *testing.T) {
+	help := Help()
+	if !strings.Contains(help, "service install|uninstall|start|stop|restart|status|logs|config") {
+		t.Fatalf("help does not list service config:\n%s", help)
+	}
+}

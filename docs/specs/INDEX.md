@@ -116,7 +116,7 @@ System pages (Radarr/Sonarr-style) for status, disk usage, database maintenance,
 ## Conventions
 
 - **Spec layout.** Umbrella specs live as flat `.md` files under the umbrella directory (`docs/specs/office/agents.md`). Standalone specs use a folder (`docs/specs/improve-kandev/spec.md`).
-- **Plans are not specs.** Implementation plans (`plan.md`) are tracked working documents that describe how an approved spec will be built. Specs remain the durable requirements.
+- **Plans are not specs.** Implementation plans are tracked working documents that describe how an approved spec will be built. Existing specs may keep `plan.md` next to the spec; new buildouts may use `docs/plans/<feature>/` with sibling task files named `task-<NN>-<short-slug>.md`. Specs remain the durable requirements.
 - **Bug fixes are not specs.** Bugs produce a regression test plus an ADR if they encoded a new convention. See `/fix` skill.
 - **Architecture decisions are not specs.** ADRs live under `docs/decisions/`. See `/record decision`.
 

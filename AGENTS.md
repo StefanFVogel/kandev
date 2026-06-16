@@ -67,9 +67,9 @@ When you hit a limit: extract a helper function, custom hook, or sub-component. 
 Every code change must include tests for new or changed logic. Backend: `*_test.go` files alongside the source. Frontend: `*.test.ts` files for utility functions, hooks, API clients, and store slices. Exceptions: config files, generated code, React component markup. Use `/tdd` for test-driven development.
 
 ### Knowledge
-- **Specs:** Feature specs live in `docs/specs/<slug>/spec.md` — the "what & why" of a feature, written before coding. Optional siblings: `plan.md` (how), `notes.md` (post-ship). Use `/spec` to write or update a spec. See `docs/specs/INDEX.md`.
+- **Specs:** Feature specs live in `docs/specs/<slug>/spec.md` — the durable "what & why" of a feature, written before coding. Use `/spec` to write or update a spec. See `docs/specs/INDEX.md`.
 - **Decisions:** Architecture decisions are recorded in `docs/decisions/`. Read `docs/decisions/INDEX.md` for an overview. When making significant architectural choices, create a new ADR via `/record decision`.
-- **Plans:** Implementation plans are generated from specs via `/plan` and saved to `docs/specs/<slug>/plan.md`. Plans are tracked alongside specs so implementation context survives across agents and PRs.
+- **Plans:** Implementation plans are generated from specs via `/plan` and tracked in git so implementation context survives across agents and PRs. Existing specs may keep `docs/specs/<slug>/plan.md`; new feature buildouts may use `docs/plans/<slug>/plan.md` with sibling task files named `task-<NN>-<short-slug>.md`.
 
 ### Plan Implementation
 - After implementing a plan, run `make fmt` first to format code, then run `make typecheck test lint` to verify the changes. Formatting must come first because formatters may split lines, which can trigger complexity linter warnings.
