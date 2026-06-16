@@ -17,8 +17,8 @@ func TestBuildExtractScript(t *testing.T) {
 	if !strings.Contains(script, "KANDEV_MOCK_AGENT=only") {
 		t.Errorf("expected KANDEV_MOCK_AGENT=only in script")
 	}
-	if !strings.Contains(script, "ln -sf /usr/local/lib/kandev-cli/bin/cli.js /usr/local/bin/kandev") {
-		t.Errorf("expected kandev cli symlink in script")
+	if !strings.Contains(script, "ln -sf /app/apps/backend/bin/kandev      /usr/local/bin/kandev") {
+		t.Errorf("expected native kandev symlink in script")
 	}
 	if !strings.Contains(script, "exec kandev start") {
 		t.Errorf("expected script to launch through kandev start")
