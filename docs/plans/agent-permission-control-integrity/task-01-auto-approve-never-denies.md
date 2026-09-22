@@ -15,6 +15,9 @@ acceptance_criteria:
   - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.5
   - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.6
   - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.7
+  - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.8
+  - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.9
+  - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.10
 system_design:
   - docs/specs/agents/system-design/agent-permission-control-integrity.md#auto-approve-selection
 ---
@@ -45,6 +48,16 @@ permission prompt.
 - Record an auto-approval in the permission transcript with option ID, option
   kind, and an `auto_approve` source; record the delivery-timeout auto-cancel
   with a distinct `timed_out` result.
+- Make the request lifecycle decidable from recorded evidence without
+  reproducing the session. Today the three discriminating lines
+  (`handling permission request` at `process/manager.go:2756`,
+  `auto-approving permission request` at `:2864`, and the two empty-option
+  cancellations at `:2845` and `acp/client.go:141`) are agentctl-process logs,
+  while `responding to permission request` — the line an operator reaches for —
+  belongs to the user-response path and is absent by design whenever
+  auto-approval answers locally. Surface the auto-approved and cancelled
+  outcomes on the session transcript so "no request arrived" and "Kandev
+  cancelled the request" are distinguishable there.
 
 ## Exclusions
 
@@ -61,8 +74,9 @@ permission prompt.
 2. With `auto_approve` enabled and no allow-kind option (including an empty
    option list), Kandev creates a pending permission, emits the permission
    notification, and answers only when a response arrives.
-3. An auto-approved request and a timed-out request are distinguishable in the
-   permission transcript from a user denial.
+3. An auto-approved request, a timed-out request, a cancelled request, and a
+   session in which no request ever arrived are four distinguishable states in
+   the permission transcript, without reading the agentctl process log.
 
 ## Files likely touched
 
@@ -102,6 +116,12 @@ None.
 
 Sessions that previously continued on an arbitrary option now block on a
 prompt. The transcript entries added here are what makes that stall legible.
+
+The reporter measured `auto_approve: true` producing no prompt and an immediate
+refusal, while the same setup with the control disabled held the call pending
+for a person. Until the transcript work in this order lands, it is not settled
+whether Kandev cancelled a request or the agent never sent one. Land the
+observability first and read it before assuming which.
 
 ## Results
 

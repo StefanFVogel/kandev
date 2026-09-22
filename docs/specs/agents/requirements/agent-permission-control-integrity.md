@@ -79,7 +79,13 @@ confirms it, and must make the winning source of the effective mode visible.
 
 **Intent:** `auto_approve` must only ever select an option the provider marked
 as an allow. It must never turn into a denial or a cancellation without the user
-seeing a prompt.
+seeing a prompt, and it must never remove the interactive path that exists when
+the control is disabled.
+
+Measured today: enabling the control produces no prompt and an immediate
+refusal, while the same workspace with the control disabled holds the call
+pending until a person answers it. A control named for automation currently
+removes the only path that works.
 
 #### Acceptance criteria
 
@@ -90,6 +96,9 @@ seeing a prompt.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.5:** A permission answered by the delivery-timeout safety valve is surfaced to the user as a timed-out request, distinguishable from a user denial.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.6:** **GIVEN** a provider request offering only reject options, **WHEN** `auto_approve` is enabled, **THEN** the user receives a permission prompt and the agent receives no answer until the user responds.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.7:** **GIVEN** a provider request offering an allow option listed after a reject option, **WHEN** `auto_approve` is enabled, **THEN** Kandev selects the allow option.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.8:** Enabling `auto_approve` never leaves a session less able to proceed than leaving it disabled. Any request the control does not approve remains answerable by a person.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.9:** Whether a permission request reached Kandev, which option Kandev selected, and whether Kandev answered with a cancellation are each determinable from recorded evidence, without reproducing the session.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.10:** **GIVEN** `auto_approve` is enabled and a request Kandev cannot approve, **WHEN** the session runs unattended, **THEN** the request is visible as pending rather than resolved, and answering it lets the call proceed.
 
 ### REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-004: The permission contract carries no unread field
 

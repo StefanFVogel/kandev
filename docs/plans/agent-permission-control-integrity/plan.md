@@ -41,10 +41,52 @@ In the same configuration the **default** profile raised a permission prompt and
 ran the command once answered. The permissive mode was therefore strictly worse
 than the default mode, not merely ineffective.
 
+All four user-facing controls were measured. None of them produces an
+unattended state-changing Git command today:
+
+| Control | Measured result |
+| --- | --- |
+| `auto_approve: true` | No permission prompt reaches the user, and the command is refused in under a second. The interactive fallback is gone; nothing is approved. |
+| `cli_flags` with `--dangerously-skip-permissions` | Ends at the ACP bridge argv; the agent CLI never receives it. |
+| Profile `mode: bypassPermissions` | Set and logged; enforcement unchanged. |
+| Live session mode switch | Reaches the agent's instruction layer only. |
+| `mode: acceptEdits` + `auto_approve: true` | Same refusal pattern as every other run; the allowed/refused split did not move. |
+
+The control set is therefore not merely incomplete — with `auto_approve` enabled
+it is **worse than leaving every control off**, because the default profile at
+least raises a prompt a person can answer (measured: a tool call held
+`in_progress` for 2 m 6 s until a human selected `allow-with-updates`, then
+completed). A control whose name promises automation must not be able to remove
+the only working path.
+
 No acceptance criterion in this package rests on a displayed mode, a Kandev log
 line recording a mode as applied, or an agent-authored statement that a mode is
 active. All three are downstream of the switch and none observes enforcement.
-Acceptance is an executed state-changing Git command.
+Acceptance is an executed state-changing Git command, verified by resolving the
+resulting commit object.
+
+### Open measurement: which side suppresses the request
+
+Under `auto_approve` the absence of `responding to permission request` is
+expected rather than diagnostic: that line belongs to the user-response path
+(`orchestrator/handlers/handlers.go:448` → `manager_interaction.go:2535` →
+`process/manager.go:3180`), and an auto-approved request is answered locally in
+agentctl at `process/manager.go:2864` without ever using it.
+
+Three agentctl-side lines discriminate, and for a host executor they are in the
+agentctl process log rather than the backend log:
+
+| Line | Site | Meaning |
+| --- | --- | --- |
+| `handling permission request` (carries `auto_approve`) | `process/manager.go:2756` | a request reached Kandev at all |
+| `auto-approving permission request` (carries `option_id`, `kind`) | `process/manager.go:2864` | Kandev answered, and with which option |
+| `no options available for auto-approve, cancelling` | `process/manager.go:2845` | empty option list; answered with a cancellation |
+| `no options available, cancelling permission request` | `acp/client.go:141` | same, one layer earlier, before the handler runs |
+
+Absence of all four means the agent never asked, which points at work order 07.
+Presence of the third or fourth means Kandev converted an ask into a refusal,
+which points at work order 01. Both work orders are in this package, so the
+measurement changes their order and their acceptance evidence, not their scope.
 
 ## Confirmed root causes
 
@@ -88,8 +130,12 @@ separate Kandev-side faults:
 Also confirmed: `approval_policy`, derived from the profile's `auto_approve` in
 `resolveApprovalPolicyAndDisplayName`, is transmitted, stored on
 `config.InstanceConfig.ApprovalPolicy`, logged, and read by nothing.
-`auto_approve` itself reaches agentctl correctly through
-`ExecutorCreateRequest.AutoApprovePermissions`.
+
+`auto_approve` reaches `config.InstanceConfig.AutoApprovePermissions` through
+`ExecutorCreateRequest.AutoApprovePermissions`; that transport is intact in the
+code. Transport is not approval. Measured end to end, enabling the control
+removes the interactive path and approves nothing, so it must not be described
+as the working control anywhere in this package.
 
 **Report defect 3 — `agent_profile_id: "current_task"` creates a task with no
 session.** `current_task` is a value of the per-user setting

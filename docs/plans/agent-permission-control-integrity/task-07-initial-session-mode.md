@@ -82,9 +82,13 @@ stated in its own output that the permissive mode was active, and the
 state-changing commands were still refused. None of those three signals
 observes enforcement.
 
-This work order is accepted against an executed state-changing Git command, in
-work order 06. A green unit test proving the mode reached the configuration
-boundary is necessary and not sufficient.
+This work order is accepted against an executed state-changing Git command
+whose commit object resolves, in work order 06. A green unit test proving the
+mode reached the configuration boundary is necessary and not sufficient.
+
+It is also the only control left. The reporter measured all four — profile
+mode, live mode switch, `cli_flags`, and `auto_approve` — and none produces an
+unattended state-changing command today.
 
 ## Files likely touched
 

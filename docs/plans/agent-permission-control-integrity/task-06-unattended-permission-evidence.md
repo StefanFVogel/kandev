@@ -54,7 +54,8 @@ different, and assert both the capability and the restriction.
 ## Acceptance
 
 1. The unattended direction passes with no human interaction and no pending
-   permission request.
+   permission request, and the assertion resolves the resulting commit object
+   rather than checking for the absence of an error message.
 2. The attended direction surfaces a pending permission request, blocks the
    tool call, and completes after the answer.
 3. Both directions differ only by agent profile.
