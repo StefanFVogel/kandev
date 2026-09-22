@@ -1,7 +1,7 @@
 ---
 id: "08-multi-repo-seed-reachability"
 title: "Report a repository seed that cannot reach the agent"
-status: pending
+status: done
 wave: 1
 depends_on: []
 plan: "plan.md"
@@ -105,4 +105,29 @@ descriptive, and do not turn it into a validation error.
 
 ## Results
 
-Pending implementation.
+Done.
+
+Implemented:
+- `RepoPrepareSpec` carries the repository's `copy_files` spec, populated from
+  the launch request. Materialization still happens in the worktree manager;
+  the preparer only needs it to judge reachability.
+- `WorktreePreparer.warnUnreachableCopyFilesSeeds` runs at the end of
+  multi-repository preparation and reports each seeding repository with its
+  destination, the agent's working directory, and the repository count. It is
+  derived from the resolved layout, so no agent is involved.
+- The repository `copy_files` settings help states the destination and that a
+  two-or-more-repository task puts the agent one level above it. Copy added in
+  all six locales plus the regenerated pseudo entry.
+
+Detection, not relocation: which files may be promoted to a directory shared by
+every repository in the workspace is a separate decision with cross-repository
+blast radius.
+
+Verification (2026-09-22):
+
+```
+go test ./internal/agent/runtime/lifecycle/... ./internal/worktree/... -count=1
+cd apps/web && npx vitest run components/settings/repository-copy-files-help && pnpm run i18n:ratchet
+```
+
+All clean.

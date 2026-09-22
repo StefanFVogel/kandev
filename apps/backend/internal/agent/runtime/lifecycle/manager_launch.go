@@ -1275,6 +1275,7 @@ func buildEnvPrepareRequest(req *LaunchRequest, workspacePath string, execName e
 				RepositoryID:               r.RepositoryID,
 				RepositoryPath:             r.RepositoryPath,
 				RepoName:                   r.RepoName,
+				CopyFiles:                  r.CopyFiles,
 				BaseBranch:                 r.BaseBranch,
 				IntegrationRef:             r.IntegrationRef,
 				DefaultBranch:              r.DefaultBranch,

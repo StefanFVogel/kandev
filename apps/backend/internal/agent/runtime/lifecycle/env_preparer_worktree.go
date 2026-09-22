@@ -510,6 +510,7 @@ func (p *WorktreePreparer) prepareMultiRepo(
 	if len(worktrees) > 0 {
 		workspacePath = filepath.Dir(worktrees[0].WorktreePath)
 	}
+	p.warnUnreachableCopyFilesSeeds(specs, worktrees, workspacePath)
 
 	res := &EnvPrepareResult{
 		Success:       true,
@@ -680,5 +681,36 @@ func applySyncProgressEvent(step *PrepareStep, event worktree.SyncProgressEvent)
 		step.EndedAt = &now
 	case worktree.SyncProgressFailed:
 		completeStepError(step, event.Error)
+	}
+}
+
+// warnUnreachableCopyFilesSeeds reports a repository copy_files seed that the
+// agent cannot read in this layout.
+//
+// copy_files always materializes into the repository's own worktree root. For a
+// single repository that is the agent's working directory; for two or more it
+// is one level below the task root the agent actually runs in. A seed meant to
+// configure the agent then lands where the agent never looks, and the resulting
+// session behaves as though the configuration were absent — which reads as a
+// missing permission rather than as a misplaced file.
+func (p *WorktreePreparer) warnUnreachableCopyFilesSeeds(
+	specs []RepoPrepareSpec, worktrees []RepoWorktreeResult, agentWorkingDir string,
+) {
+	if len(specs) < 2 || agentWorkingDir == "" || p.logger == nil {
+		return
+	}
+	pathByRepositoryID := make(map[string]string, len(worktrees))
+	for _, wt := range worktrees {
+		pathByRepositoryID[wt.RepositoryID] = wt.WorktreePath
+	}
+	for _, spec := range specs {
+		if strings.TrimSpace(spec.CopyFiles) == "" {
+			continue
+		}
+		p.logger.Warn("copy_files seed does not reach the agent working directory",
+			zap.String("repository", spec.RepoName),
+			zap.String("seed_destination", pathByRepositoryID[spec.RepositoryID]),
+			zap.String("agent_working_dir", agentWorkingDir),
+			zap.Int("repository_count", len(specs)))
 	}
 }
