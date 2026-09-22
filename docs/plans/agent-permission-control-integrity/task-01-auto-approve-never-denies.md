@@ -1,7 +1,7 @@
 ---
 id: "01-auto-approve-never-denies"
 title: "Auto-approve approves or prompts"
-status: pending
+status: done
 wave: 1
 depends_on: []
 plan: "plan.md"
@@ -125,4 +125,45 @@ observability first and read it before assuming which.
 
 ## Results
 
-Pending implementation.
+Done.
+
+Implemented:
+- `autoApprovePermission` returns a decision; `handlePermissionRequest` falls
+  through to the pending flow when no option declares an allow kind, including
+  for an empty option list.
+- Option-kind comparison is normalized (trim, case-insensitive), shared with the
+  injected-Kandev policy.
+- `acp.Client.RequestPermission` no longer cancels an empty option list before
+  the handler runs; its no-handler fallback cancels instead of selecting
+  `Options[0]`.
+- `acp.Adapter.handlePermissionRequest` cancels with a Warn when no handler is
+  installed.
+- An auto-approved request now emits a permission-request record carrying
+  `auto_approved_option_id`. The orchestrator turns it into a transcript message
+  settled as approved, and skips both `setSessionWaitingForInput` and the
+  automation-run failure path, because the request was never pending.
+
+Also fixed, because it is what made the field diagnosis impossible: the agentctl
+launcher relayed the child's **stdout** unconditionally at DEBUG. agentctl logs
+to stdout, and the backend file core defaults to INFO, so every agentctl record
+— including every permission decision — was dropped before reaching any file.
+`pipeOutput` now forwards a line at the level the child tagged it with on both
+streams, keeping WARN as the unstructured fallback on stderr and DEBUG on
+stdout.
+
+Verification (2026-09-22):
+
+```
+go test ./internal/agentctl/server/process/... ./internal/agentctl/server/acp/... \
+  ./internal/agentctl/server/adapter/transport/acp/... \
+  ./internal/agent/runtime/agentctl/launcher/... -race -count=1
+```
+
+all `ok`. Regression sweep over `./internal/orchestrator/...` and
+`./internal/agent/runtime/lifecycle/...` also `ok`.
+
+Known pre-existing flake, not caused by this work order:
+`TestHandleAgentCompleted_BlocksOnTurnCompleteWhileClarificationPending` fails
+intermittently. Measured over 50 runs: 7/50 at the base commit, 4/50 with this
+change. Its `require.Eventually` settles on the session state and then asserts
+the active turn separately, so the two observations race.

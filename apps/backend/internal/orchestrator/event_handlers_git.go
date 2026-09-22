@@ -799,7 +799,14 @@ func (s *Service) handlePermissionRequest(ctx context.Context, data watcher.Perm
 		return
 	}
 
-	s.setSessionWaitingForInput(ctx, data.TaskID, data.TaskSessionID)
+	// An auto-approved request is a record of a decision Kandev already made,
+	// not a prompt. It still becomes a transcript message so the decision is
+	// auditable, but the session is not waiting on anyone and an automation run
+	// must not be failed for a prompt that was never raised.
+	autoApproved := data.AutoApprovedOptionID != ""
+	if !autoApproved {
+		s.setSessionWaitingForInput(ctx, data.TaskID, data.TaskSessionID)
+	}
 
 	if s.messageCreator != nil {
 		_, err := s.messageCreator.CreatePermissionRequestMessage(
@@ -824,13 +831,41 @@ func (s *Service) handlePermissionRequest(ctx context.Context, data watcher.Perm
 			s.logger.Debug("created permission request message",
 				zap.String("task_id", data.TaskID),
 				zap.String("pending_id", data.PendingID))
+			if autoApproved {
+				s.markPermissionAutoApproved(ctx, data)
+			}
 		}
+	}
+
+	if autoApproved {
+		return
 	}
 
 	// Automation tasks are hidden from the kanban, so there is no UI for the
 	// user to answer a permission prompt. Auto-reject and mark the run failed
 	// so the failure shows up in the automation's Recent Runs.
 	s.failAutomationRunOnPermission(ctx, data)
+}
+
+// markPermissionAutoApproved settles the transcript message for a request that
+// blanket auto-approval already answered, so an auto-approved call is
+// distinguishable from a pending one and from a user-answered one.
+func (s *Service) markPermissionAutoApproved(ctx context.Context, data watcher.PermissionRequestData) {
+	if err := s.messageCreator.UpdatePermissionMessage(
+		ctx, data.TaskID, data.TaskSessionID, data.RequestID, data.PendingID, models.PermissionStatusApproved,
+	); err != nil {
+		s.logger.Warn("failed to record auto-approved permission",
+			zap.String("task_id", data.TaskID),
+			zap.String("pending_id", data.PendingID),
+			zap.String("option_id", data.AutoApprovedOptionID),
+			zap.Error(err))
+		return
+	}
+	s.logger.Info("recorded auto-approved permission",
+		zap.String("task_id", data.TaskID),
+		zap.String("session_id", data.TaskSessionID),
+		zap.String("pending_id", data.PendingID),
+		zap.String("option_id", data.AutoApprovedOptionID))
 }
 
 // failAutomationRunOnPermission checks whether the permission request belongs

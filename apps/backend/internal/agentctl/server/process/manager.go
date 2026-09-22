@@ -2759,9 +2759,15 @@ func (m *Manager) handlePermissionRequest(ctx context.Context, req *adapter.Perm
 		zap.String("tool_call_id", req.ToolCallID),
 		zap.Bool("auto_approve", m.cfg.AutoApprovePermissions))
 
-	// If auto-approve is enabled, immediately approve with the first "allow" option
+	// Blanket auto-approval answers only with an option the provider marked as
+	// an allow. When it cannot, the request continues into the pending flow so a
+	// person can answer it; auto-approval must never be the reason a call is
+	// refused without anyone seeing it.
 	if m.cfg.AutoApprovePermissions {
-		return m.autoApprovePermission(req)
+		if response, approved := m.autoApprovePermission(req); approved {
+			m.recordAutoApprovedPermission(pendingID, req, response.OptionID)
+			return response, nil
+		}
 	}
 	if response, approved := m.autoApproveInjectedKandevPermission(req); approved {
 		return response, nil
@@ -2838,27 +2844,23 @@ func (m *Manager) handlePermissionRequest(ctx context.Context, req *adapter.Perm
 	}
 }
 
-// autoApprovePermission automatically approves a permission request
-// by selecting the first "allow" option, or the first option if no allow option exists
-func (m *Manager) autoApprovePermission(req *adapter.PermissionRequest) (*adapter.PermissionResponse, error) {
-	if len(req.Options) == 0 {
-		m.logger.Warn("no options available for auto-approve, cancelling")
-		return &adapter.PermissionResponse{Cancelled: true}, nil
-	}
-
-	// Find the first "allow" option
+// autoApprovePermission answers a permission request by selecting the first
+// offered option whose kind is an allow. It reports false when no such option
+// exists, including for an empty option list, so the caller falls through to
+// the pending permission flow rather than answering with an option the provider
+// meant as a refusal.
+func (m *Manager) autoApprovePermission(req *adapter.PermissionRequest) (*adapter.PermissionResponse, bool) {
 	var selectedOption *adapter.PermissionOption
 	for i := range req.Options {
-		opt := &req.Options[i]
-		if opt.Kind == "allow_once" || opt.Kind == "allow_always" {
-			selectedOption = opt
+		if isAllowPermissionKind(req.Options[i].Kind) {
+			selectedOption = &req.Options[i]
 			break
 		}
 	}
-
-	// If no allow option, use the first option
 	if selectedOption == nil {
-		selectedOption = &req.Options[0]
+		m.logger.Info("auto-approve found no allow option, prompting instead",
+			zap.Int("option_count", len(req.Options)))
+		return nil, false
 	}
 
 	m.logger.Info("auto-approving permission request",
@@ -2867,7 +2869,39 @@ func (m *Manager) autoApprovePermission(req *adapter.PermissionRequest) (*adapte
 
 	return &adapter.PermissionResponse{
 		OptionID: selectedOption.OptionID,
-	}, nil
+	}, true
+}
+
+// recordAutoApprovedPermission emits the permission request that blanket
+// auto-approval just answered, marked with the option Kandev selected.
+//
+// Without it an auto-approved call leaves no trace a person can read: the
+// pending flow is skipped, so no permission message is created, and the only
+// evidence is an agentctl log line. A session where Kandev answered then looks
+// exactly like one where the agent never asked.
+//
+// Delivery is best-effort. The agent already has its answer, so a full updates
+// channel must not block the turn.
+func (m *Manager) recordAutoApprovedPermission(pendingID string, req *adapter.PermissionRequest, optionID string) {
+	pending := &PendingPermission{
+		ID:        pendingID,
+		RequestID: uuid.NewString(),
+		Request:   req,
+		CreatedAt: time.Now().UTC(),
+		State:     streams.PermissionStatusResolving,
+	}
+	pending.Snapshot = m.permissionSnapshot(pending)
+
+	event := m.permissionRequestEvent(pending)
+	event.AutoApprovedOptionID = optionID
+
+	select {
+	case m.updatesCh <- event:
+	default:
+		m.logger.Warn("dropped auto-approved permission record, updates channel full",
+			zap.String("pending_id", pendingID),
+			zap.String("option_id", optionID))
+	}
 }
 
 // sendPermissionNotification sends a permission request notification through the updates channel.
@@ -2882,7 +2916,10 @@ func (m *Manager) autoApprovePermission(req *adapter.PermissionRequest) (*adapte
 // it must park instead: the wait ends either because a backend later
 // attaches (which starts draining the channel, satisfying the same select
 // sendUpdateBlocking already performs) or because the instance stops.
-func (m *Manager) sendPermissionNotification(pending *PendingPermission) {
+// permissionRequestEvent builds the stream event describing a permission
+// request. Shared by the pending flow and by the auto-approved record so both
+// present the same redacted snapshot to the backend.
+func (m *Manager) permissionRequestEvent(pending *PendingPermission) adapter.AgentEvent {
 	options := make([]streams.PermissionOption, len(pending.Snapshot.Options))
 	for i, option := range pending.Snapshot.Options {
 		options[i] = streams.PermissionOption{
@@ -2891,7 +2928,7 @@ func (m *Manager) sendPermissionNotification(pending *PendingPermission) {
 			Kind:     option.Kind,
 		}
 	}
-	event := adapter.AgentEvent{
+	return adapter.AgentEvent{
 		Type:              adapter.EventTypePermissionRequest,
 		SessionID:         m.permissionSessionID(pending),
 		ToolCallID:        pending.Request.ToolCallID,
@@ -2902,6 +2939,10 @@ func (m *Manager) sendPermissionNotification(pending *PendingPermission) {
 		ActionType:        pending.Snapshot.Action.Type,
 		ActionDetails:     permissionActionDetailsForEvent(pending.Snapshot.Action),
 	}
+}
+
+func (m *Manager) sendPermissionNotification(pending *PendingPermission) {
+	event := m.permissionRequestEvent(pending)
 
 	m.logger.Info("sending permission notification via updates channel",
 		zap.String("pending_id", pending.ID),

@@ -462,18 +462,22 @@ type PermissionOption struct {
 
 // PermissionRequestEventPayload is the payload when an agent requests permission.
 type PermissionRequestEventPayload struct {
-	Type          string                 `json:"type"` // Always "permission_request"
-	Timestamp     string                 `json:"timestamp"`
-	AgentID       string                 `json:"agent_id"`
-	TaskID        string                 `json:"task_id"`
-	SessionID     string                 `json:"session_id"`
-	RequestID     string                 `json:"request_id"`
-	PendingID     string                 `json:"pending_id"`
-	ToolCallID    string                 `json:"tool_call_id"`
-	Title         string                 `json:"title"`
-	Options       []PermissionOption     `json:"options"`
-	ActionType    string                 `json:"action_type"`
-	ActionDetails map[string]interface{} `json:"action_details,omitempty"`
+	Type       string             `json:"type"` // Always "permission_request"
+	Timestamp  string             `json:"timestamp"`
+	AgentID    string             `json:"agent_id"`
+	TaskID     string             `json:"task_id"`
+	SessionID  string             `json:"session_id"`
+	RequestID  string             `json:"request_id"`
+	PendingID  string             `json:"pending_id"`
+	ToolCallID string             `json:"tool_call_id"`
+	Title      string             `json:"title"`
+	Options    []PermissionOption `json:"options"`
+	ActionType string             `json:"action_type"`
+	// AutoApprovedOptionID names the option agentctl already selected. A
+	// nonempty value makes this payload an audit record of an answered
+	// request rather than a prompt awaiting a person.
+	AutoApprovedOptionID string                 `json:"auto_approved_option_id,omitempty"`
+	ActionDetails        map[string]interface{} `json:"action_details,omitempty"`
 }
 
 // ShellOutputEventPayload is the payload for shell output events.

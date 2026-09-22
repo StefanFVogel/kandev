@@ -560,6 +560,8 @@ func (p *EventPublisher) PublishPermissionRequest(execution *AgentExecution, eve
 		Options:       options,
 		ActionType:    event.ActionType,
 		ActionDetails: event.ActionDetails,
+
+		AutoApprovedOptionID: event.AutoApprovedOptionID,
 	}
 
 	busEvent := bus.NewEvent(events.PermissionRequestReceived, "agent-manager", payload)
