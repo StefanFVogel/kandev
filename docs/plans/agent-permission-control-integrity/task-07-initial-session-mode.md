@@ -1,0 +1,121 @@
+---
+id: "07-initial-session-mode"
+title: "Deliver the permission mode at session start"
+status: pending
+wave: 1
+depends_on: []
+plan: "plan.md"
+requirements:
+  - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-002
+acceptance_criteria:
+  - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.7
+  - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.8
+  - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.9
+  - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.10
+  - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.11
+system_design:
+  - docs/specs/agents/system-design/agent-permission-control-integrity.md#initial-mode-delivery
+---
+
+# Task 07: Deliver the permission mode at session start
+
+## Summary
+
+Kandev never configures the agent process with a permission mode. It creates the
+session in the runtime's default mode and switches afterwards. Give the mode an
+initial-delivery channel resolved before the process starts, in a per-session
+configuration directory Kandev owns.
+
+This is the work order that addresses the reported symptom directly: a mode that
+reaches the agent's instruction layer without changing what the process
+enforces.
+
+## Scope
+
+- Add an `InitialModeDelivery` declaration to `agents.Agent` with the three
+  shapes in the design (`settings`, `session_meta`, absent), plus the
+  mode-availability precondition. Declare it only for agents whose wire contract
+  has been read; Claude ACP uses `settings`.
+- Extend the per-instance session directory (`CommandBuilder.ExpandSessionDir`,
+  `RuntimeConfig.SessionConfig.SessionDirTemplate`) to host executors, and
+  export its path through the agent-declared configuration environment variable.
+  Container executors keep their existing bind mount.
+- Before launch, write only the Kandev-owned keys (the resolved effective mode)
+  into that directory's settings file, preserving any other content.
+- For container executors, declare the runtime sandbox environment so a
+  permissive mode is not disabled for a root process identity.
+- When the requested mode remains unavailable for the executor, record it as
+  unavailable with the reason on the session instead of starting silently in
+  another mode.
+- Agents with no declared channel keep the post-creation switch and record the
+  mode as best-effort.
+
+## Exclusions
+
+- No change to mode precedence. The effective mode resolved by
+  `Manager.effectiveSessionMode` is the value delivered here.
+- No `_meta` on `session/new` for Claude ACP: the bundled bridge overrides any
+  caller-supplied `permissionMode` in the session request, so that channel does
+  not work for it.
+- No writes into the workspace's own agent configuration. The runtime strips an
+  escalating default mode from repository-committed sources, and Kandev must not
+  modify a checked-out repository to change a permission.
+- No confirmation or attribution work; that is work order 02.
+
+## Acceptance
+
+1. A session started with a profile mode launches an agent process already
+   configured with that mode, verified at the agent's configuration boundary
+   rather than by a post-creation switch.
+2. Delivery writes only into the per-session directory; a host-executor launch
+   leaves the user's shared agent configuration byte-identical.
+3. A mode the runtime disables for the executor's process identity is reported
+   as unavailable with its reason, and the session still starts.
+
+## Files likely touched
+
+- `apps/backend/internal/agent/agents/agent.go`
+- `apps/backend/internal/agent/agents/claude_acp.go`
+- `apps/backend/internal/agent/runtime/lifecycle/command.go`
+- `apps/backend/internal/agent/runtime/lifecycle/environment_resolution.go`
+- `apps/backend/internal/agent/runtime/lifecycle/manager_launch.go`
+- `apps/backend/internal/agent/runtime/lifecycle/executor_standalone.go`
+- `apps/backend/internal/agent/runtime/lifecycle/executor_docker.go`
+- New `apps/backend/internal/agent/runtime/lifecycle/initial_mode_test.go`
+
+## TDD sequence
+
+1. Add failing tests: a Claude ACP launch writes the resolved effective mode
+   into the per-session configuration directory and exports its path; an
+   existing unrelated key in that file survives the write; a host-executor
+   launch does not touch the user home; an agent with no declared channel takes
+   the post-creation path and records best-effort; an unavailable mode is
+   recorded with its reason.
+2. Run the focused command and confirm the expected failures.
+3. Implement the declaration, the host-executor session directory, the settings
+   write, and the sandbox declaration for container executors.
+4. Re-run the focused command; all pass.
+
+## Verification
+
+```bash
+cd "$(git rev-parse --show-toplevel)/apps/backend" && go test ./internal/agent/agents/... ./internal/agent/runtime/lifecycle/... -race -count=1
+```
+
+## Dependencies
+
+None. Disjoint from work orders 01, 03, 04, and 05; complementary to 02, which
+adds confirmation on top of the delivery this work order introduces.
+
+## Risks
+
+Extending the per-session configuration directory to host executors changes
+where a host-executor agent reads its configuration. That is the intended
+isolation, but it also means a developer's existing local agent settings stop
+applying inside a Kandev session. Confirm with the user before landing, and
+cover the migration in the same change if existing behavior must be preserved
+for some keys.
+
+## Results
+
+Pending implementation.

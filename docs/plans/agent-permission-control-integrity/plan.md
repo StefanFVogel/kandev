@@ -39,9 +39,17 @@ passthrough puts the flags on the real agent binary. Claude's
 passthrough-only in prose, but nothing enforces that, so the flag can be saved
 on an ACP profile and silently lands on the bridge.
 
-**Report defect 2 — permission controls do not change enforcement.** Three
+**Report defect 2 — permission controls do not change enforcement.** Four
 separate Kandev-side faults:
 
+- **Kandev never configures the agent process with a permission mode.**
+  `acp.Adapter.NewSession` sends only `Cwd` and `McpServers`; no `_meta`, no
+  agent settings. The process starts in the runtime's default mode and Kandev
+  issues `session/set_mode` afterwards. For the bundled Claude bridge that
+  switch is a mid-session control request, which is exactly the shape the report
+  measured: the mode reaches the agent's instruction layer while the process
+  keeps enforcing what it started with. This is the fault that matches the
+  reported symptom; work order 07 addresses it.
 - `acp.Adapter.SetMode` emits its session-mode event from the **requested** mode
   and the cached mode list, never from the agent's reported current mode. A
   clamped or ineffective mode is logged identically to an applied one.
@@ -73,28 +81,39 @@ every inheritance and workspace-default fallback), and fails in
 `runtime.ValidateProfile` inside `launchAutoStartTask`'s fire-and-forget
 goroutine, which logs the error and returns. The tool already reported success.
 
-### What this package does not claim
+### Where the denial comes from
 
-The report's exact denial (`git commit` and `git checkout -b` refused while
-`git add` and `git branch` ran) is not reproduced by any single confirmed
-Kandev-side path, and the report itself records that mechanism as unresolved.
-The provider's own bypass-immune classification is a candidate and belongs to
-the provider, not to Kandev. This package removes every Kandev-side path that
-can produce an invisible denial and makes the surviving decision attributable,
-so a remaining refusal is traceable to the provider rather than to an
-unverifiable Kandev claim. Work order 06 is the check that decides whether
-anything is left.
+The refusals are raised by the running agent itself, not by a Bash-tool
+permission request that Kandev answers. That is consistent with the report's
+measurement of zero permission requests for those sessions, and it means the
+auto-approve faults above are a second, independent defect rather than the cause
+of the reported symptom.
+
+The agent denies internally because it is still running under the permission
+mode it was launched with. Kandev supplies no mode at session creation, so the
+process starts in the runtime default; the later `session/set_mode` changes what
+the agent is told, and the report measured that it does not change what the
+process enforces. Work order 07 closes that gap.
+
+What this package does not claim: that the runtime's mid-session mode switch is
+itself broken. That is the report's measurement, taken as evidence, and it
+belongs to the provider. The Kandev-side gap — no initial mode at all — is
+provable from the launch path and is the right fix either way. Work order 06 is
+the check that decides whether anything survives it.
 
 ## Work orders
 
 | Order | Title | Wave | Depends on |
 | --- | --- | --- | --- |
+| [`task-07-initial-session-mode.md`](task-07-initial-session-mode.md) | Deliver the permission mode at session start | 1 | — |
 | [`task-01-auto-approve-never-denies.md`](task-01-auto-approve-never-denies.md) | Auto-approve approves or prompts | 1 | — |
 | [`task-02-confirm-session-mode.md`](task-02-confirm-session-mode.md) | Confirm and attribute the applied session mode | 1 | — |
 | [`task-03-cli-flag-destination.md`](task-03-cli-flag-destination.md) | Declare and enforce the CLI flag destination | 1 | — |
 | [`task-04-remove-dead-approval-policy.md`](task-04-remove-dead-approval-policy.md) | Remove the unread `approval_policy` field | 1 | — |
 | [`task-05-mcp-create-task-profile-validation.md`](task-05-mcp-create-task-profile-validation.md) | Validate `create_task_kandev` agent profile | 1 | — |
-| [`task-06-unattended-permission-evidence.md`](task-06-unattended-permission-evidence.md) | Prove unattended and attended behavior end to end | 2 | 01, 02 |
+| [`task-06-unattended-permission-evidence.md`](task-06-unattended-permission-evidence.md) | Prove unattended and attended behavior end to end | 2 | 07, 01, 02 |
+
+Work order 07 is the one that addresses the reported symptom. Start there.
 
 Wave 1 work orders touch disjoint files and have no shared schema, generated
 contract, or package config. That is planning information only; execute

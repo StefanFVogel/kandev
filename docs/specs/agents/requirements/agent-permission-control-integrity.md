@@ -20,11 +20,15 @@ Three observed consequences:
 - An enabled `cli_flag` is appended to the ACP bridge process. The bridge does
   not forward unrecognized arguments to the agent CLI it wraps, so the flag
   never reaches the process whose behavior the user intended to change.
-- A profile `mode` is written with `session/set_mode` and logged as applied.
-  Kandev neither reads the mode the agent reports back nor records which of the
-  profile mode, a persisted session mode, and a workflow-step mode won, so a
-  clamped, overridden, or ineffective mode is indistinguishable from an applied
-  one.
+- A profile `mode` is never supplied when the agent session is created. The
+  agent process starts in its own default mode and Kandev switches afterwards
+  with `session/set_mode`. A mid-session switch is an instruction-level change
+  for some providers; the enforcement the process started with does not
+  necessarily follow it.
+- That switch is then written and logged as applied. Kandev neither reads the
+  mode the agent reports back nor records which of the profile mode, a persisted
+  session mode, and a workflow-step mode won, so a clamped, overridden, or
+  ineffective mode is indistinguishable from an applied one.
 - With `auto_approve` enabled, Kandev selects an offered option by position when
   no option declares an allow kind, and returns a cancellation when the provider
   offers no option at all. Both outcomes reach the agent as a denial, produce no
@@ -51,9 +55,10 @@ different process while the UI reports it as applied.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-001.5:** **GIVEN** a Claude ACP profile, **WHEN** a user enables the `--dangerously-skip-permissions` CLI flag and saves, **THEN** the save is rejected with a message directing the user to the permission mode control, and no launch is changed.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-001.6:** **GIVEN** a Claude CLI-passthrough profile, **WHEN** the same flag is enabled, **THEN** the save succeeds and the launched agent CLI argv contains the flag.
 
-### REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-002: Applied session mode is confirmed and attributable
+### REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-002: Session mode is delivered at start, confirmed, and attributable
 
-**Intent:** Kandev must record a permission mode as applied only after the agent
+**Intent:** Kandev must configure the agent process with the intended permission
+mode before its first turn, must record a mode as applied only after the agent
 confirms it, and must make the winning source of the effective mode visible.
 
 #### Acceptance criteria
@@ -64,6 +69,11 @@ confirms it, and must make the winning source of the effective mode visible.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.4:** The effective session mode records which source won: the agent profile, a persisted session runtime override, or a workflow-step mode action. That attribution is available on the session and in structured logs.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.5:** **GIVEN** an agent that does not offer `bypassPermissions`, **WHEN** a profile requests it, **THEN** the session reports the effective mode with a warning and does not log the requested mode as applied.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.6:** **GIVEN** a session whose persisted runtime mode differs from its profile mode, **WHEN** the session launches, **THEN** the effective mode names the persisted override as the winning source.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.7:** The effective session mode is delivered to the agent through the agent's declared initial-mode channel before the session's first turn, not only by a mode switch issued after the session exists.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.8:** Initial-mode delivery writes only into per-session agent state that Kandev owns. It never modifies the user's shared agent configuration on the host.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.9:** When the runtime refuses a mode for the launched process identity rather than for the session, the session reports the mode as unavailable with the reason. It does not run in a different mode silently.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.10:** **GIVEN** a profile requesting an unattended permission mode, **WHEN** a session starts, **THEN** the launched agent process is configured with that mode from its first turn.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.11:** **GIVEN** an executor whose process identity disables the requested mode in the agent runtime, **WHEN** a session starts, **THEN** Kandev either makes the mode available for that executor or reports it as unavailable with the reason.
 
 ### REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-003: Auto-approve approves or prompts, and never denies
 

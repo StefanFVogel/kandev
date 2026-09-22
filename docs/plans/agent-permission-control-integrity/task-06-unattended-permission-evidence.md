@@ -4,6 +4,7 @@ title: "Prove unattended and attended behavior end to end"
 status: pending
 wave: 2
 depends_on:
+  - "07-initial-session-mode"
   - "01-auto-approve-never-denies"
   - "02-confirm-session-mode"
 plan: "plan.md"
@@ -71,16 +72,16 @@ different, and assert both the capability and the restriction.
 
 1. Write the attended direction first; it should pass on current behavior and
    is the guard against over-correcting work order 01.
-2. Write the unattended direction; confirm it fails before work orders 01 and 02
+2. Write the unattended direction; confirm it fails before work orders 07, 01 and 02
    land, or documents the surviving provider-side refusal if it still fails
    after them.
 3. Add the mock-agent scenario needed by both.
 4. Add the backend integration contract test.
 5. Rebuild the mock agent and run both directions; both pass.
 
-If the unattended direction still fails after work orders 01 and 02, stop and
+If the unattended direction still fails after work orders 07, 01 and 02, stop and
 report: that is the evidence that the remaining refusal is provider-side, which
-the plan's "What this package does not claim" section anticipates. Do not add a
+the plan's "Where the denial comes from" section anticipates. Do not add a
 Kandev-side command allowlist to force it green.
 
 ## Verification
@@ -95,7 +96,7 @@ before the E2E run or the new scenario is not present in the binary.
 
 ## Dependencies
 
-Work orders 01 and 02.
+Work orders 07, 01, and 02.
 
 ## Risks
 

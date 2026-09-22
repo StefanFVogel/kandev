@@ -28,7 +28,7 @@ to the provider rather than to an unverifiable Kandev claim.
 | Requirement | Design section |
 | --- | --- |
 | `REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-001` | [CLI flag destination](#cli-flag-destination) |
-| `REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-002` | [Mode confirmation and attribution](#mode-confirmation-and-attribution) |
+| `REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-002` | [Initial mode delivery](#initial-mode-delivery), [Mode confirmation and attribution](#mode-confirmation-and-attribution) |
 | `REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-003` | [Auto-approve selection](#auto-approve-selection) |
 | `REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-004` | [Configure contract cleanup](#configure-contract-cleanup) |
 | `REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-005` | [End-to-end evidence](#end-to-end-evidence) |
@@ -39,7 +39,8 @@ to the provider rather than to an unverifiable Kandev claim.
 | --- | --- | --- |
 | `cli_flags` (ACP launch) | `lifecycle.CommandBuilder.BuildCommand` appends the tokens to the command `Agent.BuildCommand` returned, which for every ACP agent is the bridge argv (`npx --yes --prefer-offline <bridge package>`). | The bridge process. It forwards no unrecognized argv to the agent CLI it spawns. |
 | `cli_flags` (passthrough launch) | `agents.StandardPassthrough.BuildPassthroughCommand` appends them to the agent CLI argv. | The agent CLI. Correct today. |
-| `mode` | `SessionManager.applyProfileSessionLayers` calls `client.SetMode`; `acp.Adapter.SetMode` issues `session/set_mode` and then emits a `session_mode` event built from the **requested** mode plus the cached mode list. | The agent applies it. Kandev never compares the agent's reported current mode with the requested one. |
+| `mode` (initial) | Nowhere. `acp.Adapter.NewSession` sends only `Cwd` and `McpServers`; Kandev supplies no `_meta` and writes no agent settings. | The agent process starts in the runtime's own default mode. |
+| `mode` (switch) | `SessionManager.applyProfileSessionLayers` calls `client.SetMode` **after** `session/new` returned; `acp.Adapter.SetMode` issues `session/set_mode` and then emits a `session_mode` event built from the **requested** mode plus the cached mode list. | The agent applies it as a mid-session change. Kandev never compares the agent's reported current mode with the requested one. |
 | `auto_approve` | Two carriers: `ExecutorCreateRequest.AutoApprovePermissions` / `…Override` and the `AGENTCTL_AUTO_APPROVE_PERMISSIONS` environment definition. Both converge on `config.InstanceConfig.AutoApprovePermissions`. | `process.Manager.handlePermissionRequest`. Working. |
 | `approval_policy` | `resolveApprovalPolicyAndDisplayName` maps `AutoApprove` to `never`/`untrusted`; the value travels in the configure request and is stored on `config.InstanceConfig.ApprovalPolicy`. | Nothing. It is assigned and logged, never consulted. |
 
@@ -96,6 +97,79 @@ now truthfully labelled.
 
 `CommandBuilder.BuildCommand` is unchanged. The defect was the claim, not the
 append.
+
+## Initial mode delivery
+
+The reported symptom is that a permission mode reaches the agent's instruction
+layer without changing enforcement. That is consistent with what the launch path
+does: Kandev never configures the agent process with a mode. It creates the
+session in the runtime's default mode and then issues a mid-session switch.
+
+Kandev therefore needs an initial-mode channel, resolved before the agent
+process starts.
+
+### Agent seam
+
+`agents.Agent` gains an optional `InitialModeDelivery` declaration describing how
+that agent accepts a start mode. It has three shapes:
+
+- **`settings`** — the agent resolves a start mode from a settings file in a
+  configuration directory it reads from the environment. Kandev writes the mode
+  into a per-session directory and points the agent at it.
+- **`session_meta`** — the agent accepts a start mode in the `session/new`
+  request metadata. Kandev populates it in `acp.Adapter.NewSession`.
+- **absent** — no channel. Kandev keeps the post-creation switch as today and
+  records the mode as best-effort rather than as delivered.
+
+Only agents with a verified wire contract get a non-absent declaration. Claude
+ACP uses `settings`, because the bundled bridge resolves its start mode from
+`permissions.defaultMode` in the settings it merges, and overrides any
+caller-supplied `permissionMode` in the session request. No speculative
+declaration is added for an agent whose contract has not been read.
+
+### Per-session configuration directory
+
+For the `settings` shape the write must not touch the user's shared agent
+configuration. Container executors already bind-mount an isolated per-instance
+directory through `RuntimeConfig.SessionConfig.SessionDirTemplate` /
+`SessionDirTarget`. Host executors do not: they inherit the user's real home,
+so today a Claude ACP launch on a standalone executor reads the developer's own
+`~/.claude`.
+
+The design extends the existing per-instance session directory
+(`CommandBuilder.ExpandSessionDir`, already rooted at
+`<kandev home>/agent-sessions/<instance id>/<dotdir>`) to host executors and
+exports its path to the agent process through the agent-declared configuration
+environment variable. Kandev writes only the keys it owns into that directory's
+settings file and leaves any other content alone.
+
+This has a second effect worth stating: it isolates a host-executor session from
+the developer's own agent settings, which is the current cause of a project or
+user permission list applying in a hand-started session and not in an
+MCP-created one.
+
+### Escalation trust and process identity
+
+Two runtime constraints must be handled rather than discovered at run time:
+
+- The agent runtime may strip an escalating `permissions.defaultMode` that comes
+  from a repository-committed settings source. Writing into the per-session
+  configuration directory places the value in the non-committed source, which is
+  why the previous section chooses that location rather than the workspace's
+  `.claude/`.
+- The agent runtime may disable a permissive mode entirely for the launched
+  process identity — the bundled Claude bridge computes
+  `ALLOW_BYPASS = !IS_ROOT || !!process.env.IS_SANDBOX` and then both omits
+  `bypassPermissions` from the offered modes and downgrades a settings-supplied
+  value to the default, with a log line as the only signal. For a container
+  executor, whose isolation is exactly what that escape hatch is for, Kandev
+  declares the sandbox environment. For any executor where the requested mode
+  remains unavailable, the session reports it as unavailable with the reason
+  instead of running in another mode silently.
+
+`agents.Agent` carries the mode-availability precondition alongside the delivery
+declaration, so this stays agent-owned data rather than a special case in the
+launch path.
 
 ## Mode confirmation and attribution
 
@@ -207,6 +281,15 @@ or on network access. Backend integration coverage asserts the same contract at
 - A provider that never publishes `current_mode_update` produces an unconfirmed
   mode result. Kandev warns and continues with the session; it does not fail the
   launch, because the mode may still have applied.
+- An agent with no declared initial-mode channel keeps the post-creation switch.
+  Its mode is recorded as best-effort, so the absence of a channel is visible
+  rather than presented as delivery.
+- A per-session configuration directory that cannot be created fails the launch
+  for an agent using the `settings` shape, because silently falling back to the
+  user's shared configuration is the behavior this design removes.
+- A requested mode the runtime disables for the process identity is reported as
+  unavailable. The session still starts, in the runtime's effective mode, with
+  that mode visible.
 - A provider that offers only reject options makes an `auto_approve` session
   block on a user prompt. That is the intended behavior: an unattended session
   stalls visibly rather than proceeding on a denial.
