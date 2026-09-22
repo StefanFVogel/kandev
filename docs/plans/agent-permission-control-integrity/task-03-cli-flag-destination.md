@@ -1,7 +1,7 @@
 ---
 id: "03-cli-flag-destination"
 title: "Declare and enforce the CLI flag destination"
-status: pending
+status: done
 wave: 1
 depends_on: []
 plan: "plan.md"
@@ -117,4 +117,35 @@ that with a test so the constraint is not accidentally applied at launch.
 
 ## Results
 
-Pending implementation.
+Done, with one part of the UI scope narrowed and stated.
+
+Implemented:
+- `agents.PermissionSetting` gains `PassthroughOnly` and `ACPEquivalent`.
+  Claude's `dangerously_skip_permissions` declares both; the constraint had
+  lived only in a prose comment.
+- `validatePassthroughOnlyCLIFlags` refuses saving such a flag on a profile that
+  launches over ACP, naming the ACP control that achieves the same thing. It
+  judges the resolved `cliflags.Resolve` tokens, so a restricted flag cannot
+  hide inside a multi-token entry, and a disabled entry is accepted because it
+  reaches no launch. Wired into both profile create and profile update.
+- `CommandPreviewResponse.FlagDestination` reports `acp_bridge` or `agent_cli`,
+  and the preview card states that flags are appended to the launched bridge
+  process rather than the agent CLI it wraps. Copy in all six locales plus the
+  regenerated pseudo entry.
+
+Narrowed: the flag list does not render a per-row blocking warning with a
+disabled save. The save is refused server-side with an actionable message, which
+is the behavior the acceptance criteria require; the inline pre-save affordance
+would need the flag catalog's `passthrough_only` surfaced through the profile
+editor's own state, and that is UI polish rather than the defect. Recorded here
+rather than silently dropped.
+
+Verification (2026-09-22):
+
+```
+go test ./internal/agent/agents/... ./internal/agent/settings/... -count=1
+cd apps/web && npx tsc --noEmit && npx vitest run app/settings/agents && pnpm run i18n:ratchet
+```
+
+All clean. One pinned preview expectation was updated because the response now
+carries the destination.

@@ -98,6 +98,8 @@ func (c *Controller) CreateProfile(ctx context.Context, req CreateProfileRequest
 		cliFlags = seedCLIFlags(agentConfig)
 	} else if err := validateCLIFlagDTOs(req.CLIFlags); err != nil {
 		return nil, err
+	} else if err := validatePassthroughOnlyCLIFlags(agentConfig, req.CLIFlags, req.CLIPassthrough); err != nil {
+		return nil, err
 	}
 	if err := validateProfileEnvVarDTOs(req.EnvVars); err != nil {
 		return nil, err
@@ -492,6 +494,15 @@ func (c *Controller) UpdateProfile(ctx context.Context, req UpdateProfileRequest
 	if req.CLIFlags != nil {
 		if err := validateCLIFlagDTOs(*req.CLIFlags); err != nil {
 			return nil, err
+		}
+		passthrough := profile.CLIPassthrough
+		if req.CLIPassthrough != nil {
+			passthrough = *req.CLIPassthrough
+		}
+		if agentConfig, ok := c.agentConfigForProfile(ctx, profile); ok {
+			if err := validatePassthroughOnlyCLIFlags(agentConfig, *req.CLIFlags, passthrough); err != nil {
+				return nil, err
+			}
 		}
 		profile.CLIFlags = cliFlagsFromDTO(*req.CLIFlags)
 	}

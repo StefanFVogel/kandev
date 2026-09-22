@@ -372,6 +372,18 @@ type PermissionSetting struct {
 	ApplyMethod  string `json:"apply_method,omitempty"`
 	CLIFlag      string `json:"cli_flag,omitempty"`
 	CLIFlagValue string `json:"cli_flag_value,omitempty"`
+
+	// PassthroughOnly marks a CLI flag that only reaches the agent in CLI
+	// passthrough mode. Over ACP the launched process is the bridge, which
+	// forwards no unrecognized argument to the CLI it wraps, so the flag is
+	// appended to a process that ignores it while the UI reports it as
+	// enabled.
+	PassthroughOnly bool `json:"passthrough_only,omitempty"`
+
+	// ACPEquivalent names the control that achieves the same thing over ACP.
+	// It is the actionable half of refusing a passthrough-only flag: a message
+	// that only says "not available here" leaves the user with no next step.
+	ACPEquivalent string `json:"acp_equivalent,omitempty"`
 }
 
 // PassthroughConfig defines configuration for CLI passthrough mode.

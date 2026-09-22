@@ -24,12 +24,14 @@ const claudeACPPackage = "@agentclientprotocol/claude-agent-acp"
 // there goes through agentctl's auto-approve channel.
 var claudeACPPermSettings = map[string]PermissionSetting{
 	PermissionKeyDangerouslySkipPermissions: {
-		Supported:   true,
-		Default:     false,
-		Label:       "Skip permission prompts",
-		Description: "Pass --dangerously-skip-permissions so Claude Code does not prompt for tool approvals.",
-		ApplyMethod: PermissionApplyMethodCLIFlag,
-		CLIFlag:     "--dangerously-skip-permissions",
+		Supported:       true,
+		Default:         false,
+		Label:           "Skip permission prompts",
+		Description:     "Pass --dangerously-skip-permissions so Claude Code does not prompt for tool approvals.",
+		ApplyMethod:     PermissionApplyMethodCLIFlag,
+		CLIFlag:         "--dangerously-skip-permissions",
+		PassthroughOnly: true,
+		ACPEquivalent:   "the profile's permission mode (Bypass permissions)",
 	},
 }
 
