@@ -1,0 +1,118 @@
+---
+status: draft
+system: agents
+created: 2026-09-22
+owners:
+  - kandev
+---
+# Agent Permission Control Integrity Requirements
+
+## Overview
+
+An agent profile exposes three permission controls: a permission `mode`, an
+`auto_approve` toggle, and a list of `cli_flags`. Each control currently reports
+success after Kandev has written it somewhere, not after it has reached the
+component that enforces it. A user therefore cannot tell a control that took
+effect from one that was accepted and discarded.
+
+Three observed consequences:
+
+- An enabled `cli_flag` is appended to the ACP bridge process. The bridge does
+  not forward unrecognized arguments to the agent CLI it wraps, so the flag
+  never reaches the process whose behavior the user intended to change.
+- A profile `mode` is written with `session/set_mode` and logged as applied.
+  Kandev neither reads the mode the agent reports back nor records which of the
+  profile mode, a persisted session mode, and a workflow-step mode won, so a
+  clamped, overridden, or ineffective mode is indistinguishable from an applied
+  one.
+- With `auto_approve` enabled, Kandev selects an offered option by position when
+  no option declares an allow kind, and returns a cancellation when the provider
+  offers no option at all. Both outcomes reach the agent as a denial, produce no
+  permission request, and are reported to the user as auto-approval.
+
+The user-visible effect is that an agent session cannot be configured to run
+state-changing Git commands unattended, which blocks multi-repository work where
+each repository gets its own task and its own pull request.
+
+## Requirements
+
+### REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-001: CLI flags reach a declared destination
+
+**Intent:** A profile CLI flag must reach the process the user configured it
+for, or be refused with an actionable message. It must never be delivered to a
+different process while the UI reports it as applied.
+
+#### Acceptance criteria
+
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-001.1:** Each agent declares, per launch mode, whether its enabled profile CLI flags are delivered to the launched process argv or to the wrapped agent CLI.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-001.2:** For an ACP launch of an agent that declares no forwarding channel, Kandev continues to append the flags to the launched bridge argv and states that destination in the profile editor's command preview.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-001.3:** A flag that the active agent declares as available only in CLI passthrough mode is rejected when saved on a profile that launches over ACP. The rejection names the equivalent ACP control.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-001.4:** The profile editor's command preview shows the exact argv for the launched process, and names the destination process for the flag section.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-001.5:** **GIVEN** a Claude ACP profile, **WHEN** a user enables the `--dangerously-skip-permissions` CLI flag and saves, **THEN** the save is rejected with a message directing the user to the permission mode control, and no launch is changed.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-001.6:** **GIVEN** a Claude CLI-passthrough profile, **WHEN** the same flag is enabled, **THEN** the save succeeds and the launched agent CLI argv contains the flag.
+
+### REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-002: Applied session mode is confirmed and attributable
+
+**Intent:** Kandev must record a permission mode as applied only after the agent
+confirms it, and must make the winning source of the effective mode visible.
+
+#### Acceptance criteria
+
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.1:** A mode change is recorded as applied only when the agent's reported current mode equals the requested mode after the call returns.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.2:** A mode that the agent clamps to a different value, refuses, or does not offer produces a session-visible warning naming the requested mode and the effective mode. It is not logged as a successful application.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.3:** The session's displayed mode equals the agent's reported current mode, never the requested mode alone.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.4:** The effective session mode records which source won: the agent profile, a persisted session runtime override, or a workflow-step mode action. That attribution is available on the session and in structured logs.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.5:** **GIVEN** an agent that does not offer `bypassPermissions`, **WHEN** a profile requests it, **THEN** the session reports the effective mode with a warning and does not log the requested mode as applied.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.6:** **GIVEN** a session whose persisted runtime mode differs from its profile mode, **WHEN** the session launches, **THEN** the effective mode names the persisted override as the winning source.
+
+### REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-003: Auto-approve approves or prompts, and never denies
+
+**Intent:** `auto_approve` must only ever select an option the provider marked
+as an allow. It must never turn into a denial or a cancellation without the user
+seeing a prompt.
+
+#### Acceptance criteria
+
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.1:** With `auto_approve` enabled, Kandev selects only an option whose kind is `allow_once` or `allow_always`.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.2:** When no offered option declares an allow kind, Kandev falls back to the interactive permission prompt rather than selecting an option by position.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.3:** When the provider offers no option at all, Kandev records the request and surfaces it to the user rather than answering with a cancellation.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.4:** Every auto-approval records a permission transcript entry carrying the selected option ID, option kind, and the auto-approval source, so an auto-approved call and a human-approved call are both auditable.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.5:** A permission answered by the delivery-timeout safety valve is surfaced to the user as a timed-out request, distinguishable from a user denial.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.6:** **GIVEN** a provider request offering only reject options, **WHEN** `auto_approve` is enabled, **THEN** the user receives a permission prompt and the agent receives no answer until the user responds.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.7:** **GIVEN** a provider request offering an allow option listed after a reject option, **WHEN** `auto_approve` is enabled, **THEN** Kandev selects the allow option.
+
+### REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-004: The permission contract carries no unread field
+
+**Intent:** Kandev must not transmit a permission setting that no component
+reads, because it makes the wire contract misleading during diagnosis.
+
+#### Acceptance criteria
+
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-004.1:** The agent-configure request carries no permission field that no code path consumes.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-004.2:** An agentctl build that still receives the removed field ignores it without failing the configure call.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-004.3:** `auto_approve` reaches agentctl through exactly one documented carrier.
+
+### REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-005: Unattended state-changing Git commands are proven in both directions
+
+**Intent:** The fix is only complete when the intended capability and the
+intended restriction are both demonstrated, because a mechanism verified only in
+its success case says nothing about the case it exists for.
+
+#### Acceptance criteria
+
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-005.1:** An end-to-end check proves that a session started with an unattended-permission profile runs a state-changing Git command with no human response and no pending permission request.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-005.2:** The same end-to-end check proves that a session started with the default profile raises a pending permission request for the same command and does not run it until answered.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-005.3:** Both directions run against the same repository, executor, and workspace mode, so the profile is the only difference.
+
+## Out of scope
+
+- Changing which commands the installed agent CLI classifies as requiring
+  permission. That classification belongs to the agent, not to Kandev.
+- Adding a Kandev-owned command allowlist or denylist.
+- Changing the Changes-panel Git implementation or the permission boundary it
+  documents in
+  [`git-operations-permission-boundary.md`](git-operations-permission-boundary.md).
+- Changing external permission resolution, covered by
+  [`external-permission-resolution.md`](external-permission-resolution.md).
+- Changing `create_task_kandev` profile resolution, covered by
+  [`../../tasks/requirements/mcp-create-task-agent-profile-validation.md`](../../tasks/requirements/mcp-create-task-agent-profile-validation.md).
