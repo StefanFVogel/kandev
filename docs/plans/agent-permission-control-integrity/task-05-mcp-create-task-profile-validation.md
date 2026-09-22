@@ -1,7 +1,7 @@
 ---
 id: "05-mcp-create-task-profile-validation"
 title: "Validate create_task_kandev agent profile"
-status: pending
+status: done
 wave: 1
 depends_on: []
 plan: "plan.md"
@@ -108,4 +108,28 @@ precedence regressions green is the guard.
 
 ## Results
 
-Pending implementation.
+Done.
+
+Implemented:
+- `Handlers.validateExplicitAgentProfile` runs in `handleCreateTask` before any
+  write. It rejects `current_task` and `workspace_default` with a message naming
+  `mcp_task_agent_profile_default` and stating that omitting the argument selects
+  the policy, and rejects an ID that resolves to no profile. Both return
+  `ErrorCodeValidation`; a store outage returns an internal error rather than
+  creating a task with an unverified profile.
+- New narrow `AgentProfileVerifier` seam on `Handlers`, satisfied by
+  `agentsettingscontroller.Controller.AgentProfileExists`, wired in
+  `backendapp/helpers.go`. An unwired verifier degrades to the previous behavior
+  rather than rejecting every explicit profile.
+- An omitted `agent_profile_id` is not validated and never reads the profile
+  store, so the documented resolution precedence is unchanged.
+- Both tool descriptions now open with "Accepts an agent profile ID only" and
+  name the two words as values of the user setting. The schema test pins the new
+  sentences.
+- `launchAutoStartTask` records a failed asynchronous launch on the task
+  (`auto_start_error` with reason and timestamp) through the task service, so it
+  travels on the task event stream instead of reaching only the backend log.
+
+Verification (2026-09-22): `go test ./internal/mcp/... -race -count=1` all `ok`.
+Regression sweep over `./internal/task/...`, `./internal/agent/settings/...`
+and `./internal/backendapp/...` also clean.

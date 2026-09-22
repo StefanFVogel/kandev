@@ -54,6 +54,23 @@ type CreateProfileRequest struct {
 	Dynamic                *dto.DynamicAgentProfileDTO
 }
 
+// AgentProfileExists reports whether id names a profile. It exists so callers
+// that only need to validate a caller-supplied ID do not have to read and
+// discard a whole profile, and so a missing row is not reported as an error.
+func (c *Controller) AgentProfileExists(ctx context.Context, id string) (bool, error) {
+	if id == "" {
+		return false, nil
+	}
+	profile, err := c.repo.GetAgentProfile(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return profile != nil, nil
+}
+
 func (c *Controller) CreateProfile(ctx context.Context, req CreateProfileRequest) (*dto.AgentProfileDTO, error) {
 	// Model is optional — the profile reconciler fills it from the host
 	// utility probe cache on boot, and session start applies it via
