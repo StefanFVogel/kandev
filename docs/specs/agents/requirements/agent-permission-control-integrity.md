@@ -113,6 +113,22 @@ its success case says nothing about the case it exists for.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-005.1:** An end-to-end check proves that a session started with an unattended-permission profile runs a state-changing Git command with no human response and no pending permission request.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-005.2:** The same end-to-end check proves that a session started with the default profile raises a pending permission request for the same command and does not run it until answered.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-005.3:** Both directions run against the same repository, executor, and workspace mode, so the profile is the only difference.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-005.4:** Acceptance is measured against the observed result of a state-changing command. A displayed session mode, a structured log recording a mode as applied, and an agent-authored statement that a mode is active are not acceptance evidence for any criterion in this document.
+
+### REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-006: Workspace-seeded agent configuration reaches the agent
+
+**Intent:** Configuration Kandev seeds into a workspace must land in the
+directory the agent actually reads. A seed that lands one level away is worse
+than no seed, because the resulting failure looks like a missing permission
+rather than a misplaced file.
+
+#### Acceptance criteria
+
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-006.1:** Repository-scoped file seeding states which directory it writes into and whether that directory is the agent's working directory for the workspace layout in use.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-006.2:** When a workspace holds more than one repository, a seed configured to reach the agent is placed where the agent reads it, or the configuration surface reports that it cannot reach the agent in that layout.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-006.3:** The mismatch is detectable without running an agent, so it does not present as a permission failure.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-006.4:** **GIVEN** a workspace with two repositories and a repository-scoped seed intended for the agent, **WHEN** a session starts, **THEN** either the agent reads the seeded file or Kandev reports that the seed does not reach the agent in this layout.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-006.5:** **GIVEN** a workspace with one repository, **WHEN** a session starts, **THEN** the existing seeding behavior is unchanged.
 
 ## Out of scope
 

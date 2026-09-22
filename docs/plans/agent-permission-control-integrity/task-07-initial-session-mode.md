@@ -72,6 +72,20 @@ enforces.
 3. A mode the runtime disables for the executor's process identity is reported
    as unavailable with its reason, and the session still starts.
 
+### What does not count as acceptance
+
+`AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-005.4` applies to this work order. The
+reporter measured the existing switch twice — once through the profile at
+session start, once by toggling a live session — and in both runs Kandev logged
+`set profile mode on ACP session` with `mode: bypassPermissions`, the agent
+stated in its own output that the permissive mode was active, and the
+state-changing commands were still refused. None of those three signals
+observes enforcement.
+
+This work order is accepted against an executed state-changing Git command, in
+work order 06. A green unit test proving the mode reached the configuration
+boundary is necessary and not sufficient.
+
 ## Files likely touched
 
 - `apps/backend/internal/agent/agents/agent.go`
@@ -108,6 +122,18 @@ None. Disjoint from work orders 01, 03, 04, and 05; complementary to 02, which
 adds confirmation on top of the delivery this work order introduces.
 
 ## Risks
+
+The reporter's measurement shows the permissive mode currently behaving worse
+than the default mode: the default profile raised a prompt and the command ran
+once answered, while the permissive profile refused with no prompt. If
+delivering the mode at start does not change that, the remaining behavior is
+provider-side and work order 06 is where that is recorded — do not compensate
+for it here.
+
+The reporter's user-level `~/.claude/settings.json` carries no `permissions`
+block, so the scope this work order writes into is currently empty rather than
+conflicting. Do not assume that holds on every install: merge into existing
+content and write only the Kandev-owned keys.
 
 Extending the per-session configuration directory to host executors changes
 where a host-executor agent reads its configuration. That is the intended

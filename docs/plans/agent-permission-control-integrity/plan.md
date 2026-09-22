@@ -27,6 +27,25 @@ not.
 | [`mcp-create-task-agent-profile-validation.md`](../../specs/tasks/requirements/mcp-create-task-agent-profile-validation.md) | Requirements for `create_task_kandev` profile validation |
 | [`mcp-create-task-agent-profile-validation.md`](../../specs/tasks/system-design/mcp-create-task-agent-profile-validation.md) | Design for synchronous validation and async launch-failure visibility |
 
+## Measured baseline
+
+The reporter measured the permissive mode twice, once applied through the
+profile at session start and once by toggling the mode on a live session. Both
+runs produced the same three signals — Kandev logged `set profile mode on ACP
+session` with `mode: bypassPermissions`, the agent stated in its own output that
+the permissive mode was active, and the launched process carried
+`--permission-mode default` — and both runs still refused the state-changing
+commands.
+
+In the same configuration the **default** profile raised a permission prompt and
+ran the command once answered. The permissive mode was therefore strictly worse
+than the default mode, not merely ineffective.
+
+No acceptance criterion in this package rests on a displayed mode, a Kandev log
+line recording a mode as applied, or an agent-authored statement that a mode is
+active. All three are downstream of the switch and none observes enforcement.
+Acceptance is an executed state-changing Git command.
+
 ## Confirmed root causes
 
 **Report defect 1 — CLI flags never reach the agent.**
@@ -81,6 +100,27 @@ every inheritance and workspace-default fallback), and fails in
 `runtime.ValidateProfile` inside `launchAutoStartTask`'s fire-and-forget
 goroutine, which logs the error and returns. The tool already reported success.
 
+### Ruled out: a missing project permission list in the worktree
+
+A plausible-looking explanation was that `.claude/settings.local.json` is
+gitignored and therefore absent from a freshly created worktree, so an
+MCP-created sub-task would lack the allow list that a hand-started session in
+the main checkout has.
+
+The reporter tested it and the correlation is inverted. In the repository where
+sub-tasks **fail**, the file is tracked in git (3391 B on the base ref), so
+`git worktree add` materializes it before any session hook runs; it carries 63
+allow entries including `Bash(git commit:*)`, `Bash(git push:*)` and
+`Bash(git checkout:*)`, with empty `deny`, empty `ask`, and no `defaultMode`. In
+the repository where a sub-task **succeeded**, the file is not tracked at all
+and a fresh worktree starts without it.
+
+The absent-file explanation would therefore justify a fix that repairs nothing.
+Seeding the file deterministically is still worth doing on its own terms — the
+reporter's standards put `settings.local.json` in `.gitignore`, and the tracked
+copy is the deviation — but it is not part of this package and must not be
+presented as addressing the refusals.
+
 ### Where the denial comes from
 
 The refusals are raised by the running agent itself, not by a Bash-tool
@@ -111,6 +151,7 @@ the check that decides whether anything survives it.
 | [`task-03-cli-flag-destination.md`](task-03-cli-flag-destination.md) | Declare and enforce the CLI flag destination | 1 | — |
 | [`task-04-remove-dead-approval-policy.md`](task-04-remove-dead-approval-policy.md) | Remove the unread `approval_policy` field | 1 | — |
 | [`task-05-mcp-create-task-profile-validation.md`](task-05-mcp-create-task-profile-validation.md) | Validate `create_task_kandev` agent profile | 1 | — |
+| [`task-08-multi-repo-seed-reachability.md`](task-08-multi-repo-seed-reachability.md) | Report a repository seed that cannot reach the agent | 1 | — |
 | [`task-06-unattended-permission-evidence.md`](task-06-unattended-permission-evidence.md) | Prove unattended and attended behavior end to end | 2 | 07, 01, 02 |
 
 Work order 07 is the one that addresses the reported symptom. Start there.

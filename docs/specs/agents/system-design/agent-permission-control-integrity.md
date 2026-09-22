@@ -7,6 +7,7 @@ requirements:
   - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-003
   - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-004
   - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-005
+  - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-006
 ---
 
 # Agent Permission Control Integrity System Design
@@ -32,6 +33,7 @@ to the provider rather than to an unverifiable Kandev claim.
 | `REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-003` | [Auto-approve selection](#auto-approve-selection) |
 | `REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-004` | [Configure contract cleanup](#configure-contract-cleanup) |
 | `REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-005` | [End-to-end evidence](#end-to-end-evidence) |
+| `REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-006` | [Workspace-seeded agent configuration](#workspace-seeded-agent-configuration) |
 
 ## Confirmed current behavior
 
@@ -108,6 +110,30 @@ session in the runtime's default mode and then issues a mid-session switch.
 Kandev therefore needs an initial-mode channel, resolved before the agent
 process starts.
 
+### Measured baseline
+
+The reporter measured the switch reaching the agent twice, once through the
+profile at session start and once by toggling the mode on a live session. In
+both runs Kandev logged the mode as applied, the agent stated in its own output
+that the permissive mode was active, and the state-changing commands were still
+refused. The launched process carried `--permission-mode default` in both runs.
+
+Two consequences for this design:
+
+- The agent's own statement that a mode is active, the Kandev log line, and the
+  displayed session mode are all downstream of the switch and none of them
+  observes enforcement. No acceptance criterion may rest on them.
+- In this configuration the permissive mode was worse than the default mode:
+  the default profile raised a permission prompt and the command ran once
+  answered, while the permissive profile refused without a prompt. Whatever
+  else is true, delivering the mode after the process has started is not
+  equivalent to starting the process in it.
+
+Separately, the reporter's user-level `~/.claude/settings.json` carries no
+`permissions` block at all, so nothing escalates from the user scope today. That
+is the scope this design writes into, and it is currently empty rather than
+conflicting.
+
 ### Agent seam
 
 `agents.Agent` gains an optional `InitialModeDelivery` declaration describing how
@@ -170,6 +196,43 @@ Two runtime constraints must be handled rather than discovered at run time:
 `agents.Agent` carries the mode-availability precondition alongside the delivery
 declaration, so this stays agent-owned data rather than a special case in the
 launch path.
+
+## Workspace-seeded agent configuration
+
+Repository-scoped file seeding (`Repository.CopyFiles`, materialized by
+`worktree.Manager.copyConfiguredFiles`) always writes into that repository's own
+worktree root: `copyfiles.Copy(ctx, req.RepositoryPath, wt.Path, ...)`. Whether
+that is the directory an agent reads depends on the workspace layout, which the
+seeding surface does not currently mention.
+
+| Layout | Agent working directory | Repository seed destination | Reaches the agent |
+| --- | --- | --- | --- |
+| One repository | the repository worktree root (`env_preparer_worktree.go:114`) | the same directory | yes |
+| Two or more repositories | the parent task root (`env_preparer_worktree.go:507-512`) | `<task root>/<repo>/…`, one level below | no |
+
+In the multi-repository layout the repositories are siblings under the task
+root, and Kandev seeds only the ownership marker, workspace-source directory
+links, and agent skills into that root. A repository-scoped seed intended to
+configure the agent therefore lands where the agent never looks, and the
+resulting session behaves as though the configuration were absent.
+
+The design does not add arbitrary file seeding at the task root. It makes the
+mismatch visible instead:
+
+- The repository seeding surface states the destination directory and, for a
+  workspace whose layout places the agent elsewhere, reports that the seed does
+  not reach the agent.
+- The check is a property of the resolved workspace layout, so it is evaluated
+  when the workspace is prepared rather than discovered through agent behavior.
+
+This is deliberately detection rather than relocation. Which files may be
+promoted to a shared task root is a separate decision with its own blast radius
+across repositories; this design only removes the silent case.
+
+Note that [initial mode delivery](#initial-mode-delivery) is unaffected by the
+layout, because it writes into the per-session configuration directory and
+points the agent at it through the environment rather than through the
+workspace.
 
 ## Mode confirmation and attribution
 
