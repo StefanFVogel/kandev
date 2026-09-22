@@ -267,6 +267,13 @@ type Adapter struct {
 	// frontend mode selector can render available options.
 	availableModes []streams.SessionModeInfo
 
+	// currentModeID is the mode the agent last reported, from session
+	// creation/load or a current_mode_update. SetMode compares against it
+	// rather than echoing the requested mode.
+	currentModeID string
+	// modeObserved closes on each mode report so a waiter can settle.
+	modeObserved chan struct{}
+
 	// Available config options from the most recent session creation/load.
 	// Used by emitSetModelEvent to include cached options in the convergence
 	// event emitted after SetModel succeeds so the frontend doesn't lose

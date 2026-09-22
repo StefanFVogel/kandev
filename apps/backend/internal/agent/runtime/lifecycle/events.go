@@ -336,6 +336,7 @@ func buildAgentStreamEventData(event agentctl.AgentEvent) *AgentStreamEventData 
 		ContentBlocks:               event.ContentBlocks,
 		Role:                        event.Role,
 		CurrentModeID:               event.CurrentModeID,
+		RequestedModeID:             event.RequestedModeID,
 		AvailableModes:              event.AvailableModes,
 		SupportsImage:               event.SupportsImage,
 		SupportsAudio:               event.SupportsAudio,

@@ -249,6 +249,12 @@ type AgentEvent struct {
 	// PermissionOptions contains the available permission choices.
 	PermissionOptions []PermissionOption `json:"permission_options,omitempty"`
 
+	// RequestedModeID is set on a session_mode event only when Kandev asked for
+	// a mode the agent did not end up in, or could not confirm. It is what makes
+	// a clamped mode distinguishable from an applied one; empty means the
+	// reported mode is exactly what was asked for.
+	RequestedModeID string `json:"requested_mode_id,omitempty"`
+
 	// AutoApprovedOptionID names the option Kandev already selected on the
 	// user's behalf. When set, the request is a record rather than a prompt:
 	// nobody needs to answer it, and the consumer must not treat the session

@@ -183,6 +183,10 @@ type AgentStreamEventData struct {
 	// comes from a subagent. Used for visual nesting in the UI.
 	ParentToolCallID string `json:"parent_tool_call_id,omitempty"`
 
+	// RequestedModeID is set on a session_mode event when the session is not in
+	// the mode Kandev asked for.
+	RequestedModeID string `json:"requested_mode_id,omitempty"`
+
 	// PendingID identifies a permission request (for "permission_cancelled" events).
 	PendingID string `json:"pending_id,omitempty"`
 
@@ -582,7 +586,11 @@ type SessionModeEventPayload struct {
 	AgentID        string                    `json:"agent_id"`
 	CurrentModeID  string                    `json:"current_mode_id"`
 	AvailableModes []streams.SessionModeInfo `json:"available_modes,omitempty"`
-	Timestamp      string                    `json:"timestamp"`
+	// RequestedModeID is set only when the session is not in the mode Kandev
+	// asked for. It lets the UI say which mode was requested instead of
+	// silently showing a different one.
+	RequestedModeID string `json:"requested_mode_id,omitempty"`
+	Timestamp       string `json:"timestamp"`
 }
 
 // GetSessionID returns the session ID for this event (used by event routing).

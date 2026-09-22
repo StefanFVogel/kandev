@@ -735,6 +735,7 @@ func (a *Adapter) emitInitialModeState(modes *acp.SessionModeState) {
 	a.mu.Lock()
 	a.availableModes = availModes
 	a.mu.Unlock()
+	a.noteCurrentMode(string(modes.CurrentModeId))
 
 	a.sendUpdate(AgentEvent{
 		Type:           streams.EventTypeSessionMode,
@@ -864,15 +865,20 @@ func currentModelFromConfig(options []streams.ConfigOption) string {
 	return ""
 }
 
-// SetMode changes the agent's session mode via ACP session/set_mode.
-func (a *Adapter) SetMode(ctx context.Context, modeID string) error {
+// SetMode changes the agent's session mode via ACP session/set_mode and
+// reports what the agent actually ended up in.
+//
+// The emitted event carries the agent's reported mode, not the requested one.
+// Echoing the request made a clamped or ignored mode look identical to an
+// applied one.
+func (a *Adapter) SetMode(ctx context.Context, modeID string) (streams.ModeResult, error) {
 	a.mu.RLock()
 	conn := a.acpConn
 	sessionID := a.sessionID
 	a.mu.RUnlock()
 
 	if conn == nil {
-		return fmt.Errorf("adapter not initialized")
+		return streams.ModeResult{Requested: modeID}, fmt.Errorf("adapter not initialized")
 	}
 
 	_, err := conn.SetSessionMode(ctx, acp.SetSessionModeRequest{
@@ -880,20 +886,33 @@ func (a *Adapter) SetMode(ctx context.Context, modeID string) error {
 		ModeId:    acp.SessionModeId(modeID),
 	})
 	if err != nil {
-		return fmt.Errorf("set session mode failed: %w", err)
+		return streams.ModeResult{Requested: modeID}, fmt.Errorf("set session mode failed: %w", err)
 	}
+
+	result := a.awaitModeSettle(ctx, modeID)
 
 	a.mu.RLock()
 	cachedModes := a.availableModes
 	a.mu.RUnlock()
 
-	a.sendUpdate(AgentEvent{
+	reported := result.Effective
+	if reported == "" {
+		// The agent has never reported a mode. Publishing an empty current
+		// mode would blank the picker, so fall back to the request and let
+		// Confirmed carry the uncertainty.
+		reported = modeID
+	}
+	event := AgentEvent{
 		Type:           streams.EventTypeSessionMode,
 		SessionID:      sessionID,
-		CurrentModeID:  modeID,
+		CurrentModeID:  reported,
 		AvailableModes: cachedModes,
-	})
-	return nil
+	}
+	if !result.Applied() {
+		event.RequestedModeID = modeID
+	}
+	a.sendUpdate(event)
+	return result, nil
 }
 
 // SetModel changes the agent's model via the ACP mechanism advertised by session/new.

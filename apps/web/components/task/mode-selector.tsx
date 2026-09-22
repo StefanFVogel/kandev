@@ -1,7 +1,15 @@
 "use client";
 
-import { memo, useCallback, useMemo, useRef, useState } from "react";
-import { IconCheck, IconChevronDown } from "@tabler/icons-react";
+import {
+  forwardRef,
+  memo,
+  type ComponentPropsWithoutRef,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { IconAlertTriangle, IconCheck, IconChevronDown } from "@tabler/icons-react";
 import { Button } from "@kandev/ui/button";
 import {
   DropdownMenu,
@@ -69,6 +77,20 @@ function formatModeName(modeId: string): string {
     .join(" ");
 }
 
+// withRequestedMode carries the requested mode onto the resolved state only
+// when it differs from what the session is actually in.
+function withRequestedMode<T extends { currentModeId: string } | undefined>(
+  state: T,
+  requestedModeId: string | undefined,
+): T extends undefined ? undefined : T & { requestedModeId?: string } {
+  if (!state || !requestedModeId || requestedModeId === state.currentModeId) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- conditional return type
+    return state as any;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- conditional return type
+  return { ...state, requestedModeId } as any;
+}
+
 function buildModeState(
   currentModeId: string | null,
   liveModes: ModeOption[] | undefined,
@@ -119,14 +141,53 @@ function useModeSelectorState(sessionId: string | null) {
 
   return useMemo(
     () =>
-      buildModeState(
-        liveModeState?.currentModeId || snapshotMode || profileMode,
-        liveModeState?.availableModes,
-        staticModes,
+      withRequestedMode(
+        buildModeState(
+          liveModeState?.currentModeId || snapshotMode || profileMode,
+          liveModeState?.availableModes,
+          staticModes,
+        ),
+        liveModeState?.requestedModeId,
       ),
     [liveModeState, profileMode, snapshotMode, staticModes],
   );
 }
+
+// Rendered under DropdownMenuTrigger/TooltipTrigger `asChild`, so it must
+// forward the ref and spread the props Radix attaches; swallowing them leaves
+// the button inert.
+const ModeSelectorTrigger = forwardRef<
+  HTMLButtonElement,
+  ComponentPropsWithoutRef<typeof Button> & {
+    displayName: string;
+    notApplied: boolean;
+    triggerClassName?: string;
+  }
+>(function ModeSelectorTrigger({ displayName, notApplied, triggerClassName, ...props }, ref) {
+  return (
+    <Button
+      {...props}
+      ref={ref}
+      variant="ghost"
+      size="sm"
+      data-testid="session-mode-selector"
+      className={cn(
+        "h-7 min-w-0 gap-1 overflow-hidden px-2 cursor-pointer whitespace-nowrap hover:bg-muted/40 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11",
+        triggerClassName,
+      )}
+    >
+      {notApplied && (
+        <IconAlertTriangle
+          className="h-3 w-3 text-amber-500 shrink-0"
+          data-testid="session-mode-not-applied"
+          aria-hidden
+        />
+      )}
+      <span className="truncate text-xs">{displayName}</span>
+      <IconChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+    </Button>
+  );
+});
 
 export const ModeSelector = memo(function ModeSelector({
   sessionId,
@@ -175,27 +236,30 @@ export const ModeSelector = memo(function ModeSelector({
 
   const currentMode = modeState.availableModes.find((m) => m.id === modeState.currentModeId);
   const displayName = currentMode?.name || modeState.currentModeId || t("common:mode");
+  // Set only when the agent did not end up in the requested mode. Showing the
+  // effective mode alone would be truthful but silent about the mismatch.
+  const requestedName = modeState.requestedModeId
+    ? (modeState.availableModes.find((m) => m.id === modeState.requestedModeId)?.name ??
+      formatModeName(modeState.requestedModeId))
+    : undefined;
 
   return (
     <DropdownMenu open={dropdownOpen} onOpenChange={handleDropdownOpenChange}>
       <Tooltip open={tooltipOpen} onOpenChange={handleTooltipOpenChange}>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              data-testid="session-mode-selector"
-              className={cn(
-                "h-7 min-w-0 gap-1 overflow-hidden px-2 cursor-pointer whitespace-nowrap hover:bg-muted/40 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11",
-                triggerClassName,
-              )}
-            >
-              <span className="truncate text-xs">{displayName}</span>
-              <IconChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
-            </Button>
+            <ModeSelectorTrigger
+              displayName={displayName}
+              notApplied={Boolean(requestedName)}
+              triggerClassName={triggerClassName}
+            />
           </DropdownMenuTrigger>
         </TooltipTrigger>
-        <TooltipContent side="top">{t("task:agentPermissionMode")}</TooltipContent>
+        <TooltipContent side="top">
+          {requestedName
+            ? t("task:sessionModeNotApplied", { requested: requestedName, effective: displayName })
+            : t("task:agentPermissionMode")}
+        </TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="start" side="top" className="min-w-[280px]">
         <DropdownMenuLabel>{t("task:availableModes")}</DropdownMenuLabel>

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kandev/kandev/internal/agent/agents"
+	agentctlclient "github.com/kandev/kandev/internal/agent/runtime/agentctl"
 	"github.com/kandev/kandev/internal/agent/runtime/lifecycle/initialmode"
 	agentruntime "github.com/kandev/kandev/internal/agentruntime"
 	"github.com/kandev/kandev/internal/task/models"
@@ -164,4 +165,23 @@ func (m *Manager) launchSessionMode(ctx context.Context, req *LaunchRequest, pro
 		return profileMode
 	}
 	return info.SessionMode
+}
+
+// reportModeOutcome records what a live mode change achieved. A clamped or
+// unobserved mode must not read as a clean apply in the log.
+func (m *Manager) reportModeOutcome(execution *AgentExecution, result agentctlclient.ModeResult) {
+	if execution == nil || result.Requested == "" {
+		return
+	}
+	if result.Applied() {
+		m.logger.Info("session mode applied",
+			zap.String("execution_id", execution.ID),
+			zap.String("mode", result.Effective))
+		return
+	}
+	m.logger.Warn("session mode was not confirmed by the agent",
+		zap.String("execution_id", execution.ID),
+		zap.String("requested_mode", result.Requested),
+		zap.String("effective_mode", result.Effective),
+		zap.Bool("confirmed", result.Confirmed))
 }

@@ -1,7 +1,7 @@
 ---
 id: "02-confirm-session-mode"
 title: "Confirm and attribute the applied session mode"
-status: pending
+status: done
 wave: 1
 depends_on: []
 plan: "plan.md"
@@ -117,4 +117,45 @@ the bound in a test rather than relying on a comment.
 
 ## Results
 
-Pending implementation.
+Done.
+
+Implemented:
+- `acp.Adapter` tracks the mode the agent reports (from `session/new`,
+  `session/load` and `current_mode_update`). `SetMode` now returns a typed
+  `streams.ModeResult` (`requested`, `effective`, `confirmed`) and waits a
+  bounded 750 ms settle window before emitting, so a clamp published after the
+  reply is observed rather than missed.
+- The emitted `session_mode` event carries the agent's reported mode, and sets
+  `requested_mode_id` only when the session is not in the requested mode.
+- The result travels through the agentctl WS response and
+  `runtime/agentctl.Client.SetMode`. An older agentctl that answers without the
+  result body yields `confirmed: false`, which is correct: nothing observed it.
+- `applyProfileSessionLayers` / `applyRuntimeSessionLayers` log the applied mode
+  only on a confirmed exact match; a clamp or an unconfirmed result logs Warn
+  with requested, effective and confirmed.
+- `effectiveSessionModeWithSource` returns the winning layer
+  (`agent_profile`, `session_override`, `none`) and it is logged on the
+  context-reset restore path.
+- The workflow `set_session_mode` apply failure moved from Debug to Warn and
+  carries `mode_source: workflow_step`.
+- Frontend: `requested_mode_id` flows into the session-runtime slice; the mode
+  selector shows a warning glyph and a tooltip naming the requested and the
+  effective mode. The selector already rendered the live reported mode, so
+  showing the truth needed no change there — only the mismatch signal is new.
+  New copy in all six locales plus a regenerated pseudo entry.
+
+Verification (2026-09-22):
+
+```
+go test ./internal/agentctl/... ./internal/agent/runtime/... ./internal/orchestrator/... -count=1
+golangci-lint run ./... --new-from-rev=8690df2f7
+cd apps/web && npx tsc --noEmit && npx vitest run components/task lib/ws/handlers && pnpm run i18n:ratchet
+```
+
+Backend clean, lint `0 issues`, typecheck clean, frontend tests pass, ratchet
+clean.
+
+Pre-existing and untouched: `pnpm run i18n:check` reports 32 missing `ja` keys
+for SSH reachability and launch warnings. Those catalogs come from
+`c7cc92382` landing after the Japanese catalog in `cd08c50ca`; this work order
+touches neither file, and the new key reports zero issues.
