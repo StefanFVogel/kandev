@@ -1,7 +1,7 @@
 ---
 spec: docs/specs/agents/requirements/agent-permission-control-integrity.md
 created: 2026-09-22
-status: pending
+status: implemented
 ---
 
 # Implementation Plan: Agent Permission Control Integrity
@@ -347,4 +347,43 @@ reported workflow failure.
 
 ## Verification Results
 
-Pending implementation.
+All eight work orders are `done`. Per work order:
+
+| Order | Commit |
+| --- | --- |
+| 01 auto-approve approves or prompts | `f19a42945` |
+| 05 create-task profile validation | `8c22037b7` |
+| 07 permission mode at session start | `abd1d14c2` |
+| 04 remove the unread `approval_policy` | `d29c43275` |
+| 02 confirm and attribute the session mode | `fc6f8c352` |
+| 06 unattended and attended evidence | `239593d8b` |
+| 08 copy_files seed reachability | `b9f7ba0a9` |
+| 03 CLI flag destination | `6cb16e75d` |
+
+Work order 06 is the package's acceptance: against the mock agent, an
+unattended profile runs a state-changing Git command with nobody answering and
+the default profile holds the same call until a person does, both asserted
+against a resolved commit object. 6 passed, 0 flaky over three repetitions.
+
+`golangci-lint run ./... --new-from-rev=8690df2f7` reports `0 issues`.
+
+### Pre-existing conditions, untouched by this package
+
+- `TestHandleAgentCompleted_BlocksOnTurnCompleteWhileClarificationPending` is
+  flaky at the base commit: 7/50 failures at base, 4/50 with these changes.
+- `TestManagerRescanKeepsFocusedWorkspaceFast` and
+  `TestRunAgentProcessAsync_ObservesStartingSiblingsBeforeProcessStart` fail
+  only under full-sweep parallel load; 0/3 in isolation.
+- `TestInstallSystemdWritesOwnerOnlyNativeMetadata` and
+  `TestInstallLaunchdWritesNativeMetadata` read the developer machine's real
+  runtime bundle directory, so they fail on any host with Kandev installed.
+- `pnpm run i18n:check` reports 32 missing `ja` keys for SSH reachability and
+  launch warnings, from `c7cc92382` landing after the Japanese catalog in
+  `cd08c50ca`. No file this package touches is involved.
+
+### What the package still does not settle
+
+That the delivered mode changes what a real provider enforces. Work order 06
+proves the Kandev side against the mock agent. The reporter's repository
+correlation — every failure in one repository, every success in the other two —
+remains the leading open candidate for their own case and is recorded above.
