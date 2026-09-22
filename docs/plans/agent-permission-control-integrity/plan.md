@@ -65,6 +65,41 @@ active. All three are downstream of the switch and none observes enforcement.
 Acceptance is an executed state-changing Git command, verified by resolving the
 resulting commit object.
 
+### Open: the failing repository is the only perfect predictor
+
+Across thirteen probes the outcome tracks the repository exactly and nothing
+else does:
+
+| Repository | Unattended-relevant probes | Succeeded |
+| --- | --- | --- |
+| sxBackend | A, D, F, G, H, I, J, K, L, L2, M | none |
+| sxAiCoop | B, parent session | both |
+| dev-standards | E | yes |
+
+No other axis separates the results. The trust flag does not (A false → refused,
+L true → refused, B true → succeeded, E false → succeeded). The agent profile
+does not (A and B ran on identical profile IDs). The permission controls do not
+(every combination failed in sxBackend). Probe A is the sharpest case: a human
+answered the prompt and the state-changing commands were still refused, in the
+same repository where every other probe also failed.
+
+The reporter's matrix records "repository or organization" as excluded because
+three repositories in three organizations were exercised. Varying a factor is
+not controlling for it; the outcome tracks this one perfectly, so it remains the
+leading open candidate.
+
+The one known content difference between the failing and the succeeding
+repository is the tracked `.claude/settings.local.json` in sxBackend. The
+inverted correlation recorded above rules out the *absence* of that file as an
+explanation. It does not rule out its *presence*, and a perfect inverse fit is
+still a perfect fit.
+
+This matters for the package's scope. Work orders 01 and 07 close provable
+Kandev-side gaps and are worth landing regardless. If the repository-content
+hypothesis holds, neither of them changes the reported outcome, and work order
+06's instruction to stop and report rather than force the unattended direction
+green is what keeps that visible.
+
 ### Open measurement: which side suppresses the request
 
 Under `auto_approve` the absence of `responding to permission request` is
