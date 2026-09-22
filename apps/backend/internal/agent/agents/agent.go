@@ -283,6 +283,11 @@ type RuntimeConfig struct {
 	// final child env after adapter merge; the inference executor strips
 	// them from the one-shot probe/inference subprocess env.
 	StripEnv []string
+	// InitialMode declares how this agent accepts the permission mode it should
+	// start in. An absent declaration means Kandev can only switch the mode
+	// after session/new, which reaches the agent's instruction layer without
+	// necessarily changing what the launched process enforces.
+	InitialMode InitialModeDelivery
 	// NamespacesMCPToolsByServer is true for clients that add the MCP server
 	// name to every tool before presenting it to the model. The per-instance
 	// Kandev MCP server removes that presentation suffix before the client adds

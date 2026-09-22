@@ -1,7 +1,7 @@
 ---
 id: "07-initial-session-mode"
 title: "Deliver the permission mode at session start"
-status: pending
+status: done
 wave: 1
 depends_on: []
 plan: "plan.md"
@@ -148,4 +148,48 @@ for some keys.
 
 ## Results
 
-Pending implementation.
+Done, with one deliberate deviation from the design.
+
+Implemented:
+- `agents.InitialModeDelivery` on `RuntimeConfig`, with the `settings_file`
+  channel and an absent default. Claude ACP declares
+  `CLAUDE_CONFIG_DIR` / `settings.json` / `permissions.defaultMode`, its four
+  mode values, and `IS_SANDBOX=1` as the container sandbox declaration.
+- `internal/agent/runtime/lifecycle/initialmode` materializes the per-session
+  configuration directory under the Kandev root and returns its path.
+- `Manager.applyInitialMode` resolves the effective mode before the process
+  starts and exports the configuration directory into the launch environment.
+  `Manager.launchSessionMode` mirrors `effectiveSessionMode`'s precedence, so a
+  persisted session mode still wins over the profile mode.
+- The sandbox declaration is added only for container runtimes (docker, remote
+  docker, kubernetes), where the bridge would otherwise disable a permissive
+  mode for the root process identity.
+- An agent without a declared channel, or a mode its channel cannot express,
+  produces a non-delivered outcome with a reason and a Warn. The post-creation
+  `session/set_mode` stays in place for those and for later switches.
+
+**Deviation: the directory is materialized by symlink, not by redirection
+alone.** The design said to point the agent at a Kandev-owned directory. Doing
+only that would have taken the agent's credentials with it — `.credentials.json`
+lives in exactly that directory — so every host-executor session would have lost
+its authentication. `Materialize` therefore links every source entry into the
+session directory and owns only the settings file. A token the agent refreshes
+reaches the real file through the link, and no secret is duplicated per session.
+
+**Blast radius is bounded by an empty mode.** `applyInitialMode` returns
+immediately when no mode is requested, so a profile that leaves `mode` empty
+keeps its launch environment byte for byte. Only sessions that ask for a mode
+are redirected.
+
+Verification (2026-09-22):
+
+```
+go test ./internal/agent/agents/... ./internal/agent/runtime/lifecycle/... -race -count=1
+```
+
+all `ok`. Regression sweep over `./internal/orchestrator/...`,
+`./internal/backendapp/...` and `./internal/agentctl/...` clean.
+
+Not covered here: whether the delivered mode changes what the provider actually
+enforces. That is work order 06, and it is measured against an executed
+state-changing Git command, never against a displayed mode.

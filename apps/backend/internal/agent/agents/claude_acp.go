@@ -138,6 +138,7 @@ func (a *ClaudeACP) Runtime() *RuntimeConfig {
 		Protocol:        agent.ProtocolACP,
 		ProjectSkillDir: ".claude/skills",
 		UserSkillDir:    ".claude/skills",
+		InitialMode:     claudeInitialModeDelivery(),
 		SessionConfig: SessionConfig{
 			NativeSessionResume: true,
 			CanRecover:          &canRecover,

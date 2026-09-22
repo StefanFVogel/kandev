@@ -987,6 +987,19 @@ func (m *Manager) launchBuildExecutorRequest(ctx context.Context, executionID st
 		return nil, nil, nil, fmt.Errorf("build launch environment: %w", err)
 	}
 
+	// Give the agent process the mode it should start in. The post-creation
+	// session/set_mode below stays as the path for later switches and for
+	// agents without a declared channel.
+	initialMode := m.applyInitialMode(
+		env, executionID, agentConfig, m.launchSessionMode(ctx, reqWithWorktree, profileInfo), reqWithWorktree.ExecutorType,
+	)
+	if initialMode.Mode != "" && !initialMode.Delivered {
+		m.logger.Warn("session mode will only be applied after the session starts",
+			zap.String("execution_id", executionID),
+			zap.String("mode", initialMode.Mode),
+			zap.String("reason", initialMode.Reason))
+	}
+
 	acpMcpServers, err := m.resolveMcpServersWithParams(ctx, executionProfileID(reqWithWorktree), reqWithWorktree.Metadata, agentConfig)
 	if err != nil {
 		m.logger.Warn("failed to resolve MCP servers for launch", zap.Error(err))

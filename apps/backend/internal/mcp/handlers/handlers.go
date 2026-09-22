@@ -1409,6 +1409,10 @@ var errMCPAgentProfileRequired = errors.New("agent_profile_id is required becaus
 // not name an existing profile. It is a validation failure, not a server error.
 var errMCPAgentProfileInvalid = errors.New("invalid agent_profile_id")
 
+// mcpReasonKey is the field name used for a machine-readable cause in MCP
+// result payloads.
+const mcpReasonKey = "reason"
+
 // mcpTaskAgentProfilePolicyValues are the two values of the per-user
 // mcp_task_agent_profile_default setting. The create-task tool description
 // names them, so callers reasonably pass them as the argument; they are not
@@ -1896,7 +1900,7 @@ func (h *Handlers) recordAutoStartFailure(ctx context.Context, taskID, reason st
 		metadata[key] = value
 	}
 	metadata[models.MetaKeyAutoStartError] = map[string]interface{}{
-		"reason":      reason,
+		mcpReasonKey:  reason,
 		"occurred_at": time.Now().UTC().Format(time.RFC3339),
 	}
 	if _, err := h.taskSvc.UpdateTask(ctx, taskID, &service.UpdateTaskRequest{Metadata: metadata}); err != nil {
@@ -2104,7 +2108,7 @@ func (h *Handlers) handleSetTaskTitle(ctx context.Context, msg *ws.Message) (*ws
 		"title":    task.Title,
 	}
 	if !accepted {
-		result["reason"] = reason
+		result[mcpReasonKey] = reason
 		return ws.NewResponse(msg.ID, msg.Action, result)
 	}
 	if h.titleBranchRenamer != nil {
@@ -2633,8 +2637,8 @@ func (h *Handlers) handleDuplicateStepComplete(
 		}
 	}
 	return ws.NewResponse(msg.ID, msg.Action, map[string]interface{}{
-		"accepted": false,
-		"reason":   "already_signaled",
+		"accepted":   false,
+		mcpReasonKey: "already_signaled",
 	})
 }
 
