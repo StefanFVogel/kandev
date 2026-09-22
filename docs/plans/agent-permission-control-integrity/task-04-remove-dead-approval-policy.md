@@ -1,7 +1,7 @@
 ---
 id: "04-remove-dead-approval-policy"
 title: "Remove the unread approval_policy field"
-status: pending
+status: done
 wave: 1
 depends_on: []
 plan: "plan.md"
@@ -102,4 +102,37 @@ keeps that true.
 
 ## Results
 
-Pending implementation.
+Done.
+
+Implemented:
+- `approval_policy` removed from the sender: `Client.ConfigureAgent`,
+  `ConfigureAgentWithEnvironment` and `configureAgent` no longer take or send it.
+- `resolveApprovalPolicyAndDisplayName` reduced to `resolveAgentDisplayName`;
+  the parameter is gone from `configureAndStartAgent`, `initializeAgentSession`,
+  `startManagedRuntimeRetry`, `retryManagedRuntimeStartup` and the Kubernetes
+  refresh path.
+- `ApprovalPolicy` removed from `config.InstanceConfig`, `InstanceOverrides` and
+  `applyApprovalOverrides`; `process.Manager.Configure` /
+  `ConfigureWithEnvironment` / `configure` no longer take it, and it is gone
+  from the "agent configured" log fields.
+- The inbound DTO in `agentctl/server/api/server.go` keeps the field, documented
+  as accepted and ignored, so an older backend configuring a newer agentctl
+  still succeeds.
+- `internal/agentctl/AGENTS.md` gains "Permission auto-approval has one
+  carrier".
+
+Verification (2026-09-22):
+
+```
+go test ./internal/agentctl/server/... ./internal/agent/runtime/... -race -count=1
+golangci-lint run ./... --new-from-rev=8690df2f7
+grep -rn 'ApprovalPolicy|approval_policy' --include='*.go' internal/ | grep -v _test.go | grep -v server/api/server.go
+```
+
+Tests `ok`, lint `0 issues`, and the grep returns nothing outside the retained
+DTO field.
+
+Note: one full-package run of `./internal/agent/runtime/lifecycle` under
+parallel load showed `TestPreflightRemoteContributionPushesUsesOneBudgetForAllRepositories`
+failing. It passed 5/5 in isolation and 2/2 on a repeat full-package run, so it
+is load-sensitive rather than a regression from this work order.

@@ -88,7 +88,7 @@ func TestRetryManagedRuntimeStartupUsesAgentctlForExecutorLocalRuntimes(t *testi
 			execution.RuntimeName = runtimeName
 
 			attempted, err := mgr.retryManagedRuntimeStartup(
-				context.Background(), execution, initialErr, agentConfig, "", "", nil, nil,
+				context.Background(), execution, initialErr, agentConfig, "", nil, nil,
 			)
 			if err != nil {
 				t.Fatalf("retryManagedRuntimeStartup: %v", err)
@@ -174,7 +174,7 @@ func TestRetryManagedRuntimeStartupLifecycle(t *testing.T) {
 		mgr, execution, mock, agentConfig := newManagedRuntimeRetryFixture(t, false)
 
 		attempted, err := mgr.retryManagedRuntimeStartup(
-			context.Background(), execution, initialErr, agentConfig, "", "", nil, nil,
+			context.Background(), execution, initialErr, agentConfig, "", nil, nil,
 		)
 		if err != nil {
 			t.Fatalf("retryManagedRuntimeStartup: %v", err)
@@ -204,7 +204,7 @@ func TestRetryManagedRuntimeStartupLifecycle(t *testing.T) {
 		}
 
 		attempted, err := mgr.retryManagedRuntimeStartup(
-			context.Background(), execution, initialErr, agentConfig, "", "", nil, nil,
+			context.Background(), execution, initialErr, agentConfig, "", nil, nil,
 		)
 		if attempted || !errors.Is(err, initialErr) {
 			t.Fatalf("mismatched ETARGET result = (%v, %v), want no retry and original error", attempted, err)
@@ -218,7 +218,7 @@ func TestRetryManagedRuntimeStartupLifecycle(t *testing.T) {
 		mgr, execution, mock, agentConfig := newManagedRuntimeRetryFixture(t, true)
 
 		attempted, err := mgr.retryManagedRuntimeStartup(
-			context.Background(), execution, initialErr, agentConfig, "", "", nil, nil,
+			context.Background(), execution, initialErr, agentConfig, "", nil, nil,
 		)
 		if !attempted {
 			t.Fatal("expected one managed runtime retry")
@@ -246,7 +246,7 @@ func TestRetryManagedRuntimeStartupLifecycle(t *testing.T) {
 		mock.failCacheRepair = true
 
 		attempted, err := mgr.retryManagedRuntimeStartup(
-			context.Background(), execution, initialErr, agentConfig, "", "", nil, nil,
+			context.Background(), execution, initialErr, agentConfig, "", nil, nil,
 		)
 		if attempted {
 			t.Fatal("cache repair failure must not count as a started retry")
@@ -274,7 +274,7 @@ func TestRetryManagedRuntimeStartupLifecycle(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		mock.onCacheRepair = cancel
 
-		attempted, err := mgr.retryManagedRuntimeStartup(ctx, execution, initialErr, agentConfig, "", "", nil, nil)
+		attempted, err := mgr.retryManagedRuntimeStartup(ctx, execution, initialErr, agentConfig, "", nil, nil)
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancellation error = %v", err)
 		}
@@ -290,7 +290,7 @@ func TestRetryManagedRuntimeStartupLifecycle(t *testing.T) {
 		t.Run("remote docker", func(t *testing.T) {
 			mgr, execution, mock, agentConfig := newManagedRuntimeRetryFixture(t, false)
 			execution.RuntimeName = agentruntime.RuntimeRemoteDocker
-			attempted, err := mgr.retryManagedRuntimeStartup(context.Background(), execution, initialErr, agentConfig, "", "", nil, nil)
+			attempted, err := mgr.retryManagedRuntimeStartup(context.Background(), execution, initialErr, agentConfig, "", nil, nil)
 			if attempted || !errors.Is(err, initialErr) {
 				t.Fatalf("remote docker result = (%v, %v), want no retry and original error", attempted, err)
 			}
@@ -302,7 +302,7 @@ func TestRetryManagedRuntimeStartupLifecycle(t *testing.T) {
 		t.Run("sprites", func(t *testing.T) {
 			mgr, execution, mock, agentConfig := newManagedRuntimeRetryFixture(t, false)
 			execution.RuntimeName = agentruntime.RuntimeSprites
-			attempted, err := mgr.retryManagedRuntimeStartup(context.Background(), execution, initialErr, agentConfig, "", "", nil, nil)
+			attempted, err := mgr.retryManagedRuntimeStartup(context.Background(), execution, initialErr, agentConfig, "", nil, nil)
 			if attempted || !errors.Is(err, initialErr) {
 				t.Fatalf("sprites result = (%v, %v), want no retry and original error", attempted, err)
 			}
@@ -317,7 +317,7 @@ func TestRetryManagedRuntimeStartupLifecycle(t *testing.T) {
 			execution.AgentID = agentConfig.ID()
 			execution.AgentCommand = "copilot"
 			execution.AgentArgs = []string{"copilot", "--acp"}
-			attempted, err := mgr.retryManagedRuntimeStartup(context.Background(), execution, initialErr, agentConfig, "", "", nil, nil)
+			attempted, err := mgr.retryManagedRuntimeStartup(context.Background(), execution, initialErr, agentConfig, "", nil, nil)
 			if attempted || !errors.Is(err, initialErr) {
 				t.Fatalf("native result = (%v, %v), want no retry and original error", attempted, err)
 			}
