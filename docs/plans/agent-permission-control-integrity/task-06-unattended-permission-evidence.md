@@ -1,7 +1,7 @@
 ---
 id: "06-unattended-permission-evidence"
 title: "Prove unattended and attended behavior end to end"
-status: pending
+status: done
 wave: 2
 depends_on:
   - "07-initial-session-mode"
@@ -107,4 +107,38 @@ the other.
 
 ## Results
 
-Pending implementation.
+Done, and the unattended direction passes.
+
+Implemented:
+- `cmd/mock-agent` scenario `git-commit-permission`: writes a probe file with
+  per-run unique content, requests permission for `git commit`, and creates the
+  commit only when granted, emitting the resulting SHA.
+- `apps/web/e2e/tests/chat/agent-permission-unattended.spec.ts` runs the same
+  scenario twice against one repository, executor and workspace mode, differing
+  only by agent profile. Blanket auto-approval is turned off for the file so
+  the profile is the only variable.
+- `manager_permission_contract_test.go` asserts the same contract below the
+  browser layer.
+
+Two defects the first run surfaced, both fixed rather than retried away:
+- The transcript was read once instead of asserted on, so the read raced the
+  scenario's closing line. It now asserts with an auto-waiting locator first.
+- `git commit` exited 1 because the worktree carries no committer identity, and
+  a repeated run staged nothing. The scenario now passes an explicit identity
+  and writes unique content per run.
+
+Verification (2026-09-22):
+
+```
+cd apps/backend && make build-mock-agent && go test ./internal/agentctl/server/process/... -race -count=1
+cd apps/web && pnpm e2e:run --grep "Unattended permission for a state-changing Git command" --repeat-each=3
+```
+
+6 passed, 0 flaky.
+
+What this does and does not establish: with the mock agent, an unattended
+profile now runs a state-changing Git command with nobody answering, and the
+default profile still holds it until a person does. It does not establish what
+a real provider does once the mode reaches its process — that is the field
+measurement the reporter still owns, and the repository correlation recorded in
+the plan remains the leading open candidate for their case.
