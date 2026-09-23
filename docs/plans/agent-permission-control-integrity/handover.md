@@ -204,41 +204,194 @@ side against the mock agent: an unattended profile commits with nobody
 answering, the default profile holds the call until a person does. It does not
 prove what a real provider enforces once the mode reaches its process.
 
-**The repository is the only perfect predictor in the field data.** Across
-thirteen probes every failure was in one repository (`sxBackend`) and every
-success in the other two (`sxAiCoop`, `dev-standards`). Neither the trust flag,
-nor the agent profile, nor any permission control separates the results. Probe A
-is the sharpest case: a human answered the prompt and the state-changing
-commands were still refused. The reporter's matrix records "repository or
-organization" as excluded because three repositories were exercised — varying a
-factor is not controlling for it.
+**The repository predictor is resolved: a deny rule in the main clone.**
+Across thirteen probes every failure was in one repository (`sxBackend`) and
+every success in the other two (`sxAiCoop`, `dev-standards`). The cause is not
+repository identity and not anything Kandev controls.
 
-The one known content difference is a **tracked** `.claude/settings.local.json`
-in the failing repository (3391 B, 63 allow entries including
-`Bash(git commit:*)`), absent from the succeeding one. The absence of that file
-is ruled out as an explanation; its presence is not.
+Claude Code anchors its project-scoped settings on the **main worktree**, not on
+the linked worktree it runs in. For a Kandev worktree,
+`git rev-parse --git-common-dir` resolves to the main clone's `.git`, and the
+session's own `.claude.json` confirms the anchor: its only `projects` key is the
+main clone path (`/home/stefan/SX/sxBackend`), never the worktree path. So the
+file that governs an agent in a Kandev worktree is
+`<main clone>/.claude/settings.local.json`.
 
-The decisive experiment, both directions, using the executor profile's empty
-`prepare_script`:
+In the failing repository that file is **uncommitted in the main clone** and
+carries
 
-1. `sxBackend` with the default profile and `prepare_script: rm -rf .claude` —
-   must succeed if the hypothesis holds.
-2. `sxAiCoop` with `sxBackend`'s `.claude/` copied in — must fail.
+```json
+"deny": ["Bash(git checkout:*)", "Bash(git commit:*)", "Bash(git merge:*)",
+         "Bash(git push:*)", "Bash(git rebase:*)", "Bash(git reset:*)"]
+```
 
-If 1 also fails, it is repository *identity* (history, remote, submodules,
-`.gitattributes`, hooks in `.git/`) rather than content; a fresh clone under a
-new name narrows it further.
+which is exactly the refused set, while `git add`, `git branch`, `git status`,
+`git rev-parse` and `git remote -v` are absent from it and ran. The main clones
+of `sxAiCoop` and `dev-standards` have no deny list, and every probe in them
+passed.
+
+A deny rule outranks `bypassPermissions`. The bundled bridge says so itself at
+session start:
+
+```
+[CLAUDE_SDK_CAN_USE_TOOL_SHADOWED] permissionMode 'bypassPermissions'
+auto-approves every tool call (except explicit deny rules) before the callback
+is consulted.
+```
+
+and the agent transcript records the refusal as `"toolDenialKind":
+"permission-rule"` — not a hook, not a prompt, and never a permission request
+Kandev could have answered. Probe A is no longer sharp: the human answered a
+prompt for some other call while the git writes were refused by a rule.
+
+**Two earlier reads of this evidence were wrong.** The *tracked*
+`.claude/settings.local.json` (3391 B, 63 allow entries) that `git worktree add`
+materializes has `deny: []` — verified on disk in the Fall 1 worktree and in its
+`HEAD`. It explains nothing. Reading `git show HEAD:.claude/settings.local.json`
+in the main clone on `main` shows a deny list only because that branch carries an
+older version of the file; the rules that actually fire are the uncommitted ones
+next to it.
+
+This also invalidated the experiment previously recorded here: a
+`prepare_script: rm -rf .claude` in the worktree cannot falsify anything,
+because it deletes the wrong file. The two directions that decide it were then
+run, unattended, on the same ACP profile (`ec705664`):
+
+| probe | tool calls | denied |
+| --- | --- | --- |
+| `sxBackend` with `<main clone>/.claude/settings.local.json` moved aside | 4 | 0 |
+| a throwaway repository without the file | 3 | 0 |
+| the same throwaway repository with the file copied in | 3 | 3 |
+
+Both directions hold. The repository that failed thirteen probes succeeds once
+the file is gone, and a repository that always succeeded fails once it is
+present. The predictor is that file, not the repository.
+
+**The product question this leaves.** Kandev sets the profile's mode correctly
+and can prove it, but a repository's local, uncommitted deny rules silently
+outrank that mode, apply to every worktree session of that repository, and are
+invisible in the profile UI and in the Kandev logs. Surfacing the effective deny
+rules at session start is the reporter's case turned into a Kandev capability;
+it is not covered by any work order in this package.
 
 **Work order 03 was narrowed.** The flag list does not render a per-row blocking
 warning with a disabled save. The save is refused server-side with an actionable
 message, which is what the acceptance criteria require. The inline pre-save
 affordance needs the flag catalog's `passthrough_only` surfaced through the
-profile editor's own state. Recorded in the work order, not silently dropped.
+profile editor's own state — the value never reaches the frontend today. The
+work order's Scope and ASCII preview sections described the affordance as
+shipped until the qualification caught it; both now state what was cut.
 
-**Ruled out, do not re-investigate.** `.claude/settings.local.json` being absent
-from a fresh worktree. The correlation is inverted: the failing repository
-tracks the file in git, so `git worktree add` materializes it before any hook
-runs; the succeeding repository does not track it at all.
+**The passthrough path is intended for unattended MCP tasks, and its permission
+control is the CLI flag, not the mode.** `create_task_kandev` with `start_agent`
+handles a passthrough profile deliberately: the prepare is marked
+`DeferredStart` so the prompt-bearing start is not pre-empted
+(`task/handlers/task_http_handlers.go`). The unattended control on that path is
+`dangerously_skip_permissions`, declared `PassthroughOnly: true` with
+`ACPEquivalent: "the profile's permission mode (Bypass permissions)"`, and
+AC-001.6 requires the flag to reach the agent CLI's argv. The mode picker is
+hidden there because `hasModes` is driven by the ACP session modes an agent
+advertises, and a passthrough profile opens no ACP session. So the absent mode
+is the declared design, not a gap.
+
+**Measured on the passthrough path: the controls arrive, the path does not
+work unattended, and the blocker is upstream of permissions.** Reading
+`buildPassthroughEnv` suggests the mode and auto-approve never reach the
+process. Measuring two live passthrough sessions says otherwise, and the
+measurement wins:
+
+```
+argv:  npx -y @anthropic-ai/claude-code --model default \
+       --dangerously-skip-permissions --mcp-config <session>.json
+env:   CLAUDE_CONFIG_DIR=<data>/agent-sessions/<execution>/.claude
+       AGENTCTL_AUTO_APPROVE_PERMISSIONS=true
+file:  <that dir>/settings.json -> {"permissions":{"defaultMode":"bypassPermissions"}}
+```
+
+So an enabled `cli_flags` entry does reach the agent CLI's argv at launch — AC
+001.6 holds beyond the save — and the mode is delivered through the same
+settings-file channel as on the ACP path. `AGENTCTL_AUTO_APPROVE_PERMISSIONS`
+is set too, though nothing reads it there: no agentctl sits in a passthrough
+session. That one is inert but harmless.
+
+Neither probe ran its command. Both stop at Claude Code's workspace trust
+dialog, captured verbatim from the PTY:
+
+```
+Quick safety check: Is this a project you created or one you trust?
+❯ No, exit
+  Yes, I trust this folder
+Enter to confirm · Esc to cancel
+```
+
+The session config Kandev materializes carries no `projects` entry for the new
+worktree, so the dialog is unavoidable for a fresh workspace. With the flag
+enabled the process exits 1 after 4.15 s and the log reads
+`interactive process exited early — likely startup failure`; without it the
+process stays alive at the dialog while Kandev records `passthrough turn
+complete` and settles the session to `WAITING_FOR_INPUT`. The likely mechanism
+for the exit is the injected prompt's newline confirming the highlighted
+default, but that is inference; the dialog and the exit code are measured.
+
+**Three gates, measured against Claude Code 2.1.278 in a PTY.** The obvious
+repair — let Kandev answer the dialog — was tested rather than argued. Two of
+the three gates can be answered before the process starts, by seeding the
+config directory Kandev already owns; the third cannot:
+
+| gate on a fresh Kandev session | pre-answerable without a keystroke |
+| --- | --- |
+| onboarding / theme picker | yes: `hasCompletedOnboarding: true` |
+| workspace trust | yes: `projects["<workspace>"].hasTrustDialogAccepted: true` |
+| bypass-permissions warning | **no flag found** |
+
+The third gate appears for the mode *and* for `--dangerously-skip-permissions`,
+and seeding `numStartups`, a prior `lastSessionId` or the trust entry does not
+suppress it. It disappears only on a later start of a config directory where a
+human accepted once. Since Kandev materializes a fresh directory per session,
+every passthrough session is a first start and meets it again. Its wording is
+why that matters: "you accept all responsibility for actions taken while
+running in Bypass Permissions mode".
+
+So the options are, in order of how much they ask Kandev to assert on the
+operator's behalf: seed the two answerable gates and keep passthrough attended;
+seed them and reuse one config directory per profile, accepted once knowingly
+by a human, so later unattended sessions start clean; or send the keystroke and
+have Kandev accept the responsibility clause itself. All three depend on file
+layout that is observed, not published — a CLI update can rename a key, and the
+keystroke variant breaks on any change to the screen.
+
+**Therefore the passthrough path is not usable for an unattended MCP task
+today, for a reason that no permission control can fix.** By the qualification's
+own framing that makes a documented limitation the right answer, plus the
+defect-4 treatment: refuse to auto-start an MCP-created task on a passthrough
+profile rather than launch a PTY that asks a question nobody can answer. The
+permission controls on that path are a second-order concern behind it.
+
+**Auto-approve does leave a trace, under a name the old heuristic did not
+look for.** "No `responding to permission request` line means Kandev was never
+asked" is false when `auto_approve` is on: that path never reaches the
+responder. It emits `auto-approving permission request` from agentctl and
+`recorded auto-approved permission` from the orchestrator, with the selected
+`option_id`, plus a permission record carrying `AutoApprovedOptionID` so the
+session shows what Kandev answered. Measured on this branch: three such lines
+for one probe session. Grep for `auto-approv`, not for the responder line.
+
+**Measured on one configuration only.** The qualification exercised
+`claude-acp` on the `exec-worktree` executor with a single repository per task.
+Not exercised, and therefore residual risk rather than evidence: any other
+agent, any other executor (container, SSH, Kubernetes), a multi-repository task,
+switching the mode on a session that is already running, and `--resume`. Only
+`claude-acp` declares a start-mode channel at all, so every other agent keeps
+the post-creation switch and the warning
+`session mode will only be applied after the session starts`.
+
+**Ruled out, do not re-investigate.** The `.claude/` directory *inside* the
+worktree, in either direction. Its `settings.local.json` is the tracked version
+(`deny: []`), and `standards/scripts/maintain_tools.py --setup` rewrites it from
+the repository's own `setup_script`, which is why byte-identical copies appear in
+worktrees of unrelated repositories that share that submodule. `copy_files` is
+empty for every repository in the instance and seeds nothing. None of it carries
+a rule that can refuse a tool call.
 
 ## 6. Running the test instance
 
@@ -274,16 +427,22 @@ is visible rather than assumed.
 
 ## 7. Suggested next steps
 
-1. Run the two-direction `.claude/` experiment in section 5. It is the only open
-   question that can still move the reporter's case, and it needs their
-   repositories rather than this worktree.
-2. Decide on forcing `NODE_ENV=development` for the Vite child in the dev
+1. Decide whether Kandev should surface the effective deny rules of an agent
+   session (section 5). The reporter's case is explained without a Kandev
+   defect, but a rule in a main clone silently outranking the profile's mode is
+   invisible today, and that invisibility is what cost thirteen probes.
+2. Open a requirement for the unattended passthrough start (section 5): an
+   MCP-created task on a passthrough profile launches a PTY that stops at the
+   workspace trust dialog, so it either exits 1 or sits forever. Defect 4's
+   treatment applies — refuse the start rather than begin one that cannot
+   finish.
+3. Decide on forcing `NODE_ENV=development` for the Vite child in the dev
    launcher (section 3). Small, contained, and prevents a whole class of
    "the page is white" reports from agent and container shells.
-3. Promote the two system designs from `draft` to `current` once the
+4. Promote the two system designs from `draft` to `current` once the
    implementation is confirmed to match, and synchronize the affected
    `docs/specs/INDEX.md` entries.
-4. Open the PR. Per `planner-orchestration`, do not run `/simplify`, `/qa`,
+5. Open the PR. Per `planner-orchestration`, do not run `/simplify`, `/qa`,
    `/code-review` or a broad `/verify` first — the configured PR reviewers are
    the semantic gate. Use `/pr-fixup` only for a CI failure or an actionable
    reviewer finding.

@@ -40,10 +40,9 @@ equivalent, and state the destination process in the command preview.
 - `internal/agent/settings/controller/agent_config.go`: the command preview
   response carries the destination of the launched process for the flag
   segment.
-- Frontend: `CliFlagsField` renders the destination note and the per-row
-  blocking warning; `CommandPreviewCard` renders the destination label; the save
-  action is disabled while a blocking flag is enabled, in both
-  `AgentProfilePage` and `CliProfileEditor`.
+- Frontend: `CommandPreviewCard` renders the destination label. `CliFlagsField`
+  renders neither a destination note nor a per-row blocking warning, and no save
+  action is disabled: the pre-save affordance was cut, see Results.
 
 ## Exclusions
 
@@ -57,10 +56,10 @@ equivalent, and state the destination process in the command preview.
 ## ASCII UI preview
 
 See [UI-01 in the plan](plan.md#ui-01-profile-editor-cli-flags-section-work-order-03).
-Structural requirements: the destination note sits above the flag list, the
-blocking warning sits inline under its flag row, the save-blocking message sits
-directly above the save action, and the command preview names the launched
-process. Phone uses the same single-column stack with wrapped warnings.
+Of its structural requirements only the last one shipped: the command preview
+names the launched process. The destination note above the flag list, the inline
+warning under the flag row, and the save-blocking message above the save action
+were cut with the pre-save affordance, see Results.
 
 ## Acceptance
 
@@ -69,9 +68,8 @@ process. Phone uses the same single-column stack with wrapped warnings.
    profile is unchanged.
 2. Saving the same flag on a Claude CLI-passthrough profile succeeds and the
    built passthrough argv contains the flag.
-3. The command preview names the launched process for the flag segment, and the
-   profile editor shows the destination note without hover-only text or
-   horizontal scrolling at narrow widths.
+3. The command preview names the launched process for the flag segment. The
+   destination note in the profile editor is not met, see Results.
 
 ## Files likely touched
 
@@ -117,7 +115,22 @@ that with a test so the constraint is not accidentally applied at launch.
 
 ## Results
 
-Done, with one part of the UI scope narrowed and stated.
+Done on the backend and in the command preview; the pre-save UI affordance was
+cut and is not implemented.
+
+Shipped: the `PassthroughOnly` and `ACPEquivalent` declaration on
+`agents.PermissionSetting`, Claude's `dangerously_skip_permissions` carrying
+both, save-time rejection in
+`settings/controller/profile_cli_flag_destination.go` naming the ACP equivalent,
+and the `flag_destination` field which `command-preview-card.tsx` renders.
+
+Not shipped: `passthrough_only` never reaches the frontend, so
+`cli-flags-field.tsx` has no destination note, no per-row warning, and no
+save-disabling state. A restricted flag is refused server-side when the operator
+saves. The acceptance criteria are met — they require the rejection, not the
+affordance — but anyone reading the Scope section above would have expected the
+UI. Reinstating it needs the flag catalog's `passthrough_only` surfaced through
+the profile editor's own state.
 
 Implemented:
 - `agents.PermissionSetting` gains `PassthroughOnly` and `ACPEquivalent`.
