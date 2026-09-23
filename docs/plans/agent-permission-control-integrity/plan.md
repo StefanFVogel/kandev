@@ -222,6 +222,12 @@ belongs to the provider. The Kandev-side gap — no initial mode at all — is
 provable from the launch path and is the right fix either way. Work order 06 is
 the check that decides whether anything survives it.
 
+## Handover
+
+[`handover.md`](handover.md) records the operational knowledge a fresh session
+needs: environment setup, the traps that cost time, the pre-existing failures
+with their measurements, and the questions this package does not settle.
+
 ## Work orders
 
 | Order | Title | Wave | Depends on |
