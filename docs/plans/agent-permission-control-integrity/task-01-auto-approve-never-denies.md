@@ -19,7 +19,7 @@ acceptance_criteria:
   - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.9
   - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.10
 system_design:
-  - docs/specs/agents/system-design/agent-permission-control-integrity.md#auto-approve-selection
+  - ../../specs/agents/system-design/agent-permission-control-integrity.md
 ---
 
 # Task 01: Auto-approve approves or prompts

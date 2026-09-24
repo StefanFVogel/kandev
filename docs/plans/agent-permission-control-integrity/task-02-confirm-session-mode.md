@@ -15,7 +15,7 @@ acceptance_criteria:
   - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.5
   - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.6
 system_design:
-  - docs/specs/agents/system-design/agent-permission-control-integrity.md#mode-confirmation-and-attribution
+  - ../../specs/agents/system-design/agent-permission-control-integrity.md
 ---
 
 # Task 02: Confirm and attribute the applied session mode

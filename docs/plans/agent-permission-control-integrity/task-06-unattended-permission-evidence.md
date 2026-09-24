@@ -15,7 +15,7 @@ acceptance_criteria:
   - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-005.2
   - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-005.3
 system_design:
-  - docs/specs/agents/system-design/agent-permission-control-integrity.md#end-to-end-evidence
+  - ../../specs/agents/system-design/agent-permission-control-integrity.md
 ---
 
 # Task 06: Prove unattended and attended behavior end to end

@@ -18,7 +18,7 @@ acceptance_criteria:
   - AC-TASKS-MCP-CREATE-TASK-PROFILE-VALIDATION-001.8
   - AC-TASKS-MCP-CREATE-TASK-PROFILE-VALIDATION-001.9
 system_design:
-  - docs/specs/tasks/system-design/mcp-create-task-agent-profile-validation.md
+  - ../../specs/tasks/system-design/mcp-create-task-agent-profile-validation.md
 ---
 
 # Task 05: Validate `create_task_kandev` agent profile

@@ -14,7 +14,7 @@ acceptance_criteria:
   - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.10
   - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.11
 system_design:
-  - docs/specs/agents/system-design/agent-permission-control-integrity.md#initial-mode-delivery
+  - ../../specs/agents/system-design/agent-permission-control-integrity.md
 ---
 
 # Task 07: Deliver the permission mode at session start

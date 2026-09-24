@@ -15,7 +15,7 @@ acceptance_criteria:
   - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-001.5
   - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-001.6
 system_design:
-  - docs/specs/agents/system-design/agent-permission-control-integrity.md#cli-flag-destination
+  - ../../specs/agents/system-design/agent-permission-control-integrity.md
 ---
 
 # Task 03: Declare and enforce the CLI flag destination

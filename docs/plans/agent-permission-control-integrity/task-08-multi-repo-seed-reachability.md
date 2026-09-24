@@ -14,7 +14,7 @@ acceptance_criteria:
   - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-006.4
   - AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-006.5
 system_design:
-  - docs/specs/agents/system-design/agent-permission-control-integrity.md#workspace-seeded-agent-configuration
+  - ../../specs/agents/system-design/agent-permission-control-integrity.md
 ---
 
 # Task 08: Report a repository seed that cannot reach the agent

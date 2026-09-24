@@ -1,7 +1,17 @@
 ---
-spec: docs/specs/agents/requirements/agent-permission-control-integrity.md
 created: 2026-09-22
 status: implemented
+requirements:
+  - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-001
+  - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-002
+  - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-003
+  - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-004
+  - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-005
+  - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-006
+  - REQ-TASKS-MCP-CREATE-TASK-PROFILE-VALIDATION-001
+system_design:
+  - ../../specs/agents/system-design/agent-permission-control-integrity.md
+  - ../../specs/tasks/system-design/mcp-create-task-agent-profile-validation.md
 ---
 
 # Implementation Plan: Agent Permission Control Integrity
