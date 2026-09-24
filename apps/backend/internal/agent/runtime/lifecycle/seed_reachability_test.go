@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"strings"
 	"testing"
 
 	"go.uber.org/zap"
@@ -27,7 +28,7 @@ func seedPreparer(t *testing.T) (*WorktreePreparer, *observer.ObservedLogs) {
 func TestWarnsWhenCopyFilesSeedCannotReachTheAgent(t *testing.T) {
 	p, logs := seedPreparer(t)
 
-	p.warnUnreachableCopyFilesSeeds(
+	steps := p.unreachableCopyFilesSeedSteps(
 		[]RepoPrepareSpec{
 			{RepositoryID: "repo-a", RepoName: "backend", CopyFiles: ".claude/settings.local.json"},
 			{RepositoryID: "repo-b", RepoName: "frontend"},
@@ -53,13 +54,29 @@ func TestWarnsWhenCopyFilesSeedCannotReachTheAgent(t *testing.T) {
 	if fields["agent_working_dir"] != "/tasks/t1" {
 		t.Fatalf("agent_working_dir = %v, want the task root", fields["agent_working_dir"])
 	}
+	// A log line alone leaves the operator with a session that behaves like a
+	// missing permission, so the mismatch must reach the prepare steps too.
+	if len(steps) != 1 {
+		t.Fatalf("steps = %d, want one warning step for the seeding repository", len(steps))
+	}
+	if steps[0].Warning == "" {
+		t.Fatal("step carries no warning")
+	}
+	if !contains(steps[0].WarningDetail, "/tasks/t1/backend") ||
+		!contains(steps[0].WarningDetail, "/tasks/t1") {
+		t.Fatalf("warning detail = %q, want both paths named", steps[0].WarningDetail)
+	}
+}
+
+func contains(haystack, needle string) bool {
+	return strings.Contains(haystack, needle)
 }
 
 // AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-006.5
 func TestNoWarningForSingleRepositoryLayout(t *testing.T) {
 	p, logs := seedPreparer(t)
 
-	p.warnUnreachableCopyFilesSeeds(
+	steps := p.unreachableCopyFilesSeedSteps(
 		[]RepoPrepareSpec{{RepositoryID: "repo-a", RepoName: "backend", CopyFiles: ".env"}},
 		[]RepoWorktreeResult{{RepositoryID: "repo-a", WorktreePath: "/tasks/t1/backend"}},
 		"/tasks/t1/backend",
@@ -68,13 +85,16 @@ func TestNoWarningForSingleRepositoryLayout(t *testing.T) {
 	if got := logs.FilterMessage("copy_files seed does not reach the agent working directory").Len(); got != 0 {
 		t.Fatalf("warnings = %d, want none for a single-repository layout", got)
 	}
+	if len(steps) != 0 {
+		t.Fatalf("steps = %d, want none for a single-repository layout", len(steps))
+	}
 }
 
 // A multi-repository workspace without any seed has nothing to report.
 func TestNoWarningWithoutASeed(t *testing.T) {
 	p, logs := seedPreparer(t)
 
-	p.warnUnreachableCopyFilesSeeds(
+	steps := p.unreachableCopyFilesSeedSteps(
 		[]RepoPrepareSpec{{RepositoryID: "repo-a"}, {RepositoryID: "repo-b"}},
 		[]RepoWorktreeResult{{RepositoryID: "repo-a"}, {RepositoryID: "repo-b"}},
 		"/tasks/t1",
@@ -82,5 +102,8 @@ func TestNoWarningWithoutASeed(t *testing.T) {
 
 	if got := logs.FilterMessage("copy_files seed does not reach the agent working directory").Len(); got != 0 {
 		t.Fatalf("warnings = %d, want none without a configured seed", got)
+	}
+	if len(steps) != 0 {
+		t.Fatalf("steps = %d, want none without a configured seed", len(steps))
 	}
 }
