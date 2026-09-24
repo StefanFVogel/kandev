@@ -894,24 +894,35 @@ func (a *Adapter) SetMode(ctx context.Context, modeID string) (streams.ModeResul
 	cachedModes := a.availableModes
 	a.mu.RUnlock()
 
-	reported := result.Effective
-	if reported == "" {
-		// The agent has never reported a mode. Publishing an empty current
-		// mode would blank the picker, so fall back to the request and let
-		// Confirmed carry the uncertainty.
-		reported = modeID
-	}
+	reported, requested := sessionModeEventFields(modeID, result)
 	event := AgentEvent{
 		Type:           streams.EventTypeSessionMode,
 		SessionID:      sessionID,
 		CurrentModeID:  reported,
 		AvailableModes: cachedModes,
 	}
-	if !result.Applied() {
-		event.RequestedModeID = modeID
-	}
+	event.RequestedModeID = requested
 	a.sendUpdate(event)
 	return result, nil
+}
+
+// sessionModeEventFields decides what a session-mode event reports after the
+// agent answered session/set_mode.
+//
+// Under ACP a successful answer means the mode changed, so only an observed
+// report can contradict it. Silence within the settle window leaves the
+// requested mode standing; the uncertainty belongs in ModeResult.Confirmed,
+// not in a current mode that would overwrite the caller's choice on persist.
+// An observed report that differs is a clamp, and carries the request
+// alongside it so the mismatch stays visible.
+func sessionModeEventFields(requested string, result streams.ModeResult) (currentModeID, requestedModeID string) {
+	if !result.Confirmed || result.Effective == "" {
+		return requested, ""
+	}
+	if result.Effective == requested {
+		return requested, ""
+	}
+	return result.Effective, requested
 }
 
 // SetModel changes the agent's model via the ACP mechanism advertised by session/new.
