@@ -495,16 +495,21 @@ func (c *Controller) UpdateProfile(ctx context.Context, req UpdateProfileRequest
 		if err := validateCLIFlagDTOs(*req.CLIFlags); err != nil {
 			return nil, err
 		}
-		passthrough := profile.CLIPassthrough
-		if req.CLIPassthrough != nil {
-			passthrough = *req.CLIPassthrough
-		}
+		profile.CLIFlags = cliFlagsFromDTO(*req.CLIFlags)
+	}
+	// Judge the flags the profile ends up with against the passthrough mode it
+	// ends up in. Validating only the submitted list let a partial update that
+	// just turns passthrough off keep an enabled flag that cannot reach the
+	// agent over ACP. profile.CLIPassthrough already carries the requested
+	// value at this point.
+	if req.CLIFlags != nil || req.CLIPassthrough != nil {
 		if agentConfig, ok := c.agentConfigForProfile(ctx, profile); ok {
-			if err := validatePassthroughOnlyCLIFlags(agentConfig, *req.CLIFlags, passthrough); err != nil {
+			if err := validatePassthroughOnlyCLIFlags(
+				agentConfig, cliFlagsToDTO(profile.CLIFlags), profile.CLIPassthrough,
+			); err != nil {
 				return nil, err
 			}
 		}
-		profile.CLIFlags = cliFlagsFromDTO(*req.CLIFlags)
 	}
 	if req.EnvVars != nil {
 		if err := validateProfileEnvVarDTOs(*req.EnvVars); err != nil {

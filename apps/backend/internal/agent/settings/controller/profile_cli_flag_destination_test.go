@@ -6,6 +6,7 @@ import (
 
 	"github.com/kandev/kandev/internal/agent/agents"
 	"github.com/kandev/kandev/internal/agent/settings/dto"
+	"github.com/kandev/kandev/internal/agent/settings/models"
 )
 
 // AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-001.3, .5
@@ -86,4 +87,31 @@ func indexOf(haystack, needle string) int {
 		}
 	}
 	return -1
+}
+
+// A partial update that only turns CLI passthrough off used to skip validation
+// entirely, because it carried no cli_flags. The profile then kept an enabled
+// flag that cannot reach the agent over ACP. The saved list is what must be
+// judged, so the stored flags have to survive the conversion with Enabled
+// intact.
+func TestStoredFlagsAreJudgedWhenPassthroughTurnsOff(t *testing.T) {
+	stored := []models.CLIFlag{
+		{Flag: "--verbose", Enabled: true},
+		{Flag: "--dangerously-skip-permissions", Enabled: true},
+	}
+
+	err := validatePassthroughOnlyCLIFlags(agents.NewClaudeACP(), cliFlagsToDTO(stored), false)
+
+	if !errors.Is(err, ErrPassthroughOnlyCLIFlag) {
+		t.Fatalf("err = %v, want ErrPassthroughOnlyCLIFlag for a retained flag", err)
+	}
+}
+
+// The same retained list stays acceptable while the profile keeps passthrough.
+func TestStoredFlagsRemainAcceptedWhilePassthroughStaysOn(t *testing.T) {
+	stored := []models.CLIFlag{{Flag: "--dangerously-skip-permissions", Enabled: true}}
+
+	if err := validatePassthroughOnlyCLIFlags(agents.NewClaudeACP(), cliFlagsToDTO(stored), true); err != nil {
+		t.Fatalf("err = %v, want the retained flag accepted in passthrough mode", err)
+	}
 }
