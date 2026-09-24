@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import {
+  IconDatabase,
   IconEdit,
   IconExternalLink,
   IconLayoutGrid,
@@ -15,7 +16,11 @@ import { Button } from "@kandev/ui/button";
 import { MobilePickerSheet } from "@/components/task/mobile/mobile-picker-sheet";
 import { PanelHeaderBarSplit } from "@/components/task/panel-primitives";
 import { CanvasPage } from "@/components/plugins/canvas-page";
-import { canvasHref, type Canvas } from "@/lib/api/domains/canvas-api";
+import {
+  canvasCanEnableWorkspaceData,
+  canvasHref,
+  type Canvas,
+} from "@/lib/api/domains/canvas-api";
 import { CanvasMobileActionsButton } from "./canvas-host-actions";
 import { canvasLockHelp, canvasPromotionHelp } from "./canvas-host-desktop-actions";
 export { CanvasHostDialogs, CanvasMobileActionsButton } from "./canvas-host-actions";
@@ -137,23 +142,41 @@ export function CanvasHostBody({
 
 export function CanvasHostHeader({
   title,
+  dataScopeLabel,
   isMobile,
   menuOpen,
   onOpenActions,
   actions,
+  renameAction,
   overflowActions,
 }: {
   title: string;
+  dataScopeLabel?: string;
   isMobile: boolean;
   menuOpen: boolean;
   onOpenActions: () => void;
   actions?: ReactNode;
+  renameAction?: ReactNode;
   overflowActions?: ReactNode;
 }) {
   return (
     <PanelHeaderBarSplit
       data-testid="canvas-host-header"
-      left={<span className="truncate text-sm font-medium">{title}</span>}
+      left={
+        <div className="flex min-w-0 items-center gap-1">
+          <span className="block min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
+          {dataScopeLabel && (
+            <span
+              className="max-w-20 shrink-0 truncate text-xs text-muted-foreground"
+              data-testid="canvas-data-scope"
+              title={dataScopeLabel}
+            >
+              {dataScopeLabel}
+            </span>
+          )}
+          {renameAction}
+        </div>
+      }
       right={
         <>
           {actions}
@@ -320,6 +343,35 @@ function MobileCanvasPromoteAction({
   );
 }
 
+function MobileCanvasWorkspaceDataAction({
+  canvas,
+  onEnable,
+  t,
+}: {
+  canvas: Canvas | null;
+  onEnable?: () => void;
+  t: (key: string) => string;
+}) {
+  if (!canvas || !onEnable || !canvasCanEnableWorkspaceData(canvas)) return null;
+
+  return (
+    <MobileCanvasAction
+      description={t("canvases:enableWorkspaceDataHelp")}
+      testId="canvas-action-enable-workspace-data-help"
+    >
+      <Button
+        variant="ghost"
+        className="min-h-11 w-full justify-start cursor-pointer"
+        onClick={onEnable}
+        data-testid="canvas-action-enable-workspace-data"
+      >
+        <IconDatabase className="mr-2 h-4 w-4" />
+        {t("canvases:enableWorkspaceData")}
+      </Button>
+    </MobileCanvasAction>
+  );
+}
+
 function MobileCanvasShareAction({
   onShare,
   t,
@@ -369,6 +421,8 @@ export function MobileCanvasActions({
   onPromote,
   onReleases,
   onShare,
+  onRename,
+  onEnableWorkspaceData,
   onSelectCanvas,
   editing,
 }: {
@@ -380,6 +434,8 @@ export function MobileCanvasActions({
   onPromote: () => void;
   onReleases: () => void;
   onShare: () => void;
+  onRename: () => void;
+  onEnableWorkspaceData?: () => void;
   onSelectCanvas: (canvas: Canvas) => void;
   editing: boolean;
 }) {
@@ -402,11 +458,23 @@ export function MobileCanvasActions({
             t={t}
           />
         )}
+        {canvas && (
+          <Button
+            variant="ghost"
+            className="min-h-11 w-full justify-start"
+            onClick={onRename}
+            data-testid="canvas-mobile-rename"
+          >
+            <IconEdit className="mr-2 size-4" />
+            {t("canvases:renameCanvas")}
+          </Button>
+        )}
         {canvas?.scope_kind === "workspace" && (
           <MobileCanvasEditAction canvas={canvas} editing={editing} onEdit={onEdit} t={t} />
         )}
         <MobileCanvasReleasesAction onReleases={onReleases} t={t} />
         {canvas && <MobileCanvasShareAction onShare={onShare} t={t} />}
+        <MobileCanvasWorkspaceDataAction canvas={canvas} onEnable={onEnableWorkspaceData} t={t} />
         {canvas?.scope_kind === "task" && (
           <MobileCanvasPromoteAction
             canvas={canvas}

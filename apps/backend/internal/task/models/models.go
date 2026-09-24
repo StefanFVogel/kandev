@@ -183,6 +183,10 @@ const (
 	// because the winner will (or already did) handle it.
 	// Absent on ordinary (non-watcher) auto-start tasks, which launch normally.
 	MetaKeyAutoStartClaimed = "auto_start_claimed"
+	// MetaKeyForkPRRequiresManualStart blocks unattended launches of fork PR
+	// review tasks. Their worktree setup scripts can read executor-profile secrets;
+	// a user can still explicitly start the task after reviewing it.
+	MetaKeyForkPRRequiresManualStart = "fork_pr_requires_manual_start"
 	// MetaKeyInterruptedAt is set by reconciliation when a task's session lost
 	// an active turn. Its presence makes the task DTO report `interrupted: true`
 	// so task-list surfaces show the warning indicator. The orchestrator removes
@@ -237,6 +241,23 @@ const (
 	// whose Routine workflow start step has no other transition to carry it
 	// into an auto_start_agent evaluation.
 	MetaKeyAutoStartOnCreate = "auto_start_on_create"
+
+	// The MetaKeyOfficeCarrier* keys are the task-boundary causation carrier
+	// set (AC-OFFICE-RUN-CAUSATION-001.18), persisted on a task when an
+	// Office trigger creates it (AC-OFFICE-RUN-CAUSATION-001.5): an agent
+	// creating a task through a runtime action, or a routine fire creating
+	// a task. A run later queued because of that task inherits these
+	// values as though the task creation were the causing run, without
+	// needing to read the creating run row again — which may no longer
+	// exist by the time the task is acted on.
+	MetaKeyOfficeCarrierCausationID    = "office_carrier_causation_id"
+	MetaKeyOfficeCarrierCausationDepth = "office_carrier_causation_depth"
+	MetaKeyOfficeCarrierCreatingRunID  = "office_carrier_creating_run_id"
+	MetaKeyOfficeCarrierHumanRooted    = "office_carrier_human_rooted"
+	MetaKeyOfficeCarrierRoutineID      = "office_carrier_routine_id"
+	MetaKeyOfficeCarrierActorKind      = "office_carrier_actor_kind"
+	MetaKeyOfficeCarrierActorID        = "office_carrier_actor_id"
+
 	// MetaKeyAutoStartOnCreateInFlight is a durable hand-off marker for an
 	// auto-start-on-create launch. The original intent is consumed before the
 	// detached launch starts, but this marker remains until a session or run
@@ -259,6 +280,44 @@ const (
 	// task created from it. Mutated via an optimistic compare-and-set.
 	MetaKeyHandoffs = "handoffs"
 )
+
+// officeCarrierMetadataKeys is every MetaKeyOfficeCarrier* key above, kept
+// next to that block so a new carrier key can't be added to one without
+// the other.
+var officeCarrierMetadataKeys = []string{
+	MetaKeyOfficeCarrierCausationID,
+	MetaKeyOfficeCarrierCausationDepth,
+	MetaKeyOfficeCarrierCreatingRunID,
+	MetaKeyOfficeCarrierHumanRooted,
+	MetaKeyOfficeCarrierRoutineID,
+	MetaKeyOfficeCarrierActorKind,
+	MetaKeyOfficeCarrierActorID,
+}
+
+// StripOfficeCarrierMetadata deletes every task-boundary causation carrier
+// key from metadata in place (safe to call with a nil map). The carrier
+// (AC-OFFICE-RUN-CAUSATION-001.18) may only be derived server-side from a
+// run's own record (AC-OFFICE-RUN-CAUSATION-001.17), so no metadata
+// originating from a request body may carry it.
+func StripOfficeCarrierMetadata(metadata map[string]interface{}) {
+	for _, key := range officeCarrierMetadataKeys {
+		delete(metadata, key)
+	}
+}
+
+// RestoreOfficeCarrierMetadata copies every task-boundary causation carrier
+// key present in existing onto updated (a key absent from existing is left
+// alone). Callers that apply a generic metadata replacement strip
+// request-supplied carrier keys with StripOfficeCarrierMetadata first, then
+// call this so the server-owned carrier the task already had survives the
+// replacement instead of being silently deleted.
+func RestoreOfficeCarrierMetadata(updated, existing map[string]interface{}) {
+	for _, key := range officeCarrierMetadataKeys {
+		if v, ok := existing[key]; ok {
+			updated[key] = v
+		}
+	}
+}
 
 // WorkflowInitialSessionSnapshot identifies the immutable task-initial
 // conversation and the logical profile selected when it was created.
@@ -2723,6 +2782,57 @@ type TaskPlanCommentSnapshot struct {
 
 // TaskPlanCommentRef identifies the exact pending-comment version a delivery includes.
 type TaskPlanCommentRef struct {
+	ID      string `json:"id"`
+	Version int64  `json:"version"`
+}
+
+type TaskPreviewFeedbackKind string
+
+const (
+	TaskPreviewFeedbackText       TaskPreviewFeedbackKind = "text"
+	TaskPreviewFeedbackElement    TaskPreviewFeedbackKind = "element"
+	TaskPreviewFeedbackScreenshot TaskPreviewFeedbackKind = "screenshot"
+)
+
+type TaskPreviewFeedbackSourceKind string
+
+const (
+	TaskPreviewFeedbackBrowser  TaskPreviewFeedbackSourceKind = "browser"
+	TaskPreviewFeedbackHTMLFile TaskPreviewFeedbackSourceKind = "html_file"
+)
+
+// TaskPreviewFeedback is one immutable rendered-page capture with an editable comment.
+type TaskPreviewFeedback struct {
+	ID                     string                        `json:"id"`
+	TaskID                 string                        `json:"task_id"`
+	Kind                   TaskPreviewFeedbackKind       `json:"kind"`
+	Comment                string                        `json:"comment"`
+	SourceKind             TaskPreviewFeedbackSourceKind `json:"source_kind"`
+	SourceSessionID        string                        `json:"source_session_id,omitempty"`
+	SourceLabel            string                        `json:"source_label"`
+	SourcePath             string                        `json:"source_path,omitempty"`
+	PageRoute              string                        `json:"page_route"`
+	PageTitle              string                        `json:"page_title"`
+	SelectedText           string                        `json:"selected_text,omitempty"`
+	TextAnchor             json.RawMessage               `json:"text_anchor,omitempty"`
+	ElementSnapshot        json.RawMessage               `json:"element_snapshot,omitempty"`
+	CaptureRect            json.RawMessage               `json:"capture_rect,omitempty"`
+	ScreenshotAttachmentID string                        `json:"screenshot_attachment_id,omitempty"`
+	ScreenshotAttachment   *TaskMessageAttachment        `json:"screenshot_attachment,omitempty"`
+	Version                int64                         `json:"version"`
+	CreatedAt              time.Time                     `json:"created_at"`
+	UpdatedAt              time.Time                     `json:"updated_at"`
+}
+
+// TaskPreviewFeedbackSnapshot is the authoritative pending collection for a task.
+type TaskPreviewFeedbackSnapshot struct {
+	TaskID   string                 `json:"task_id" db:"task_id"`
+	Revision int64                  `json:"revision" db:"revision"`
+	Items    []*TaskPreviewFeedback `json:"items"`
+}
+
+// TaskPreviewFeedbackRef identifies the exact pending item version included in delivery.
+type TaskPreviewFeedbackRef struct {
 	ID      string `json:"id"`
 	Version int64  `json:"version"`
 }

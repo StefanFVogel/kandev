@@ -128,6 +128,15 @@ type CreateTaskRequest struct {
 	Labels                 string   `json:"labels,omitempty"`
 	BlockedBy              []string `json:"blocked_by,omitempty"`
 
+	// OfficeCarrierMetadata is the task-boundary causation carrier set
+	// (AC-OFFICE-RUN-CAUSATION-001.18), resolved server-side from the
+	// causing run's own record. It is never accepted from REST, WebSocket,
+	// or MCP JSON request bodies; only the internal Office task-creation
+	// adapters populate it. buildTask applies it after stripping any
+	// office_carrier_* key the caller placed in Metadata, so a request body
+	// can never set, reset, or lower it (AC-OFFICE-RUN-CAUSATION-001.17).
+	OfficeCarrierMetadata map[string]interface{} `json:"-"`
+
 	// StartWhenUnblocked records the requested agent start as a deferred launch
 	// intent that dependency resolution consumes, instead of launching now.
 	//
@@ -387,6 +396,7 @@ type CreateMessageRequest struct {
 	Type                  string                               `json:"type,omitempty"`
 	Metadata              map[string]interface{}               `json:"metadata,omitempty"`
 	PlanCommentRefs       []models.TaskPlanCommentRef          `json:"plan_comment_refs,omitempty"`
+	PreviewFeedbackRefs   []models.TaskPreviewFeedbackRef      `json:"preview_feedback_refs,omitempty"`
 	RequirePrimarySession bool                                 `json:"require_primary_session,omitempty"`
 	ExpectedSessionState  models.TaskSessionState              `json:"-"`
 	AttachmentClaim       *messagequeue.QueueAttachmentClaim   `json:"-"`

@@ -433,6 +433,8 @@ export type TaskStatusSummaryUpdatedPayload = {
 
 export type CanvasLifecyclePayload = {
   type?: string;
+  title?: string;
+  updated_at?: string;
   canvas_id: string;
   plugin_instance_id?: string;
   workspace_id?: string;
@@ -463,6 +465,10 @@ export type BackendMessageMap = SessionBackendMessageMap &
     "task.plan.comments.changed": BackendMessage<
       "task.plan.comments.changed",
       TaskPlanCommentEventPayload
+    >;
+    "task.preview_feedback.changed": BackendMessage<
+      "task.preview_feedback.changed",
+      import("@/lib/types/http").TaskPreviewFeedbackSnapshot
     >;
     "task.plan.revision.created": BackendMessage<
       "task.plan.revision.created",
@@ -529,6 +535,7 @@ export type BackendMessageMap = SessionBackendMessageMap &
     "workflow.step.deleted": BackendMessage<"workflow.step.deleted", WorkflowStepEventPayload>;
 
     "canvas.created": BackendMessage<"canvas.created", CanvasLifecyclePayload>;
+    "canvas.updated": BackendMessage<"canvas.updated", CanvasLifecyclePayload>;
     "canvas.release.activated": BackendMessage<"canvas.release.activated", CanvasLifecyclePayload>;
     "canvas.release.permission_required": BackendMessage<
       "canvas.release.permission_required",

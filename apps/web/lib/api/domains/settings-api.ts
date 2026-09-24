@@ -351,6 +351,7 @@ export async function createCustomTUIAgent(
     command: string;
     description?: string;
     mcp_strategy?: string;
+    protocol?: string;
   },
   options?: ApiRequestOptions,
 ): Promise<Agent> {

@@ -1716,6 +1716,9 @@ func (s *Service) autoStartTaskForStep(ctx context.Context, taskID, stepID, even
 		}
 		return
 	}
+	if s.skipForkPRAutoStart(ctx, task, eventName, autoStartOnCreateClaimed) {
+		return
+	}
 	if task.QueuedForStepID != "" {
 		if autoStartOnCreateClaimed {
 			s.restoreAutoStartOnCreate(ctx, taskID, eventName)
@@ -1948,6 +1951,9 @@ func (s *Service) autoStartTaskForLoadedStep(ctx context.Context, task *models.T
 		}
 		return
 	}
+	if s.skipForkPRAutoStart(ctx, task, eventName, autoStartOnCreateClaimed) {
+		return
+	}
 	if models.HasAutoStartOnCreateIntent(task.Metadata) || models.HasAutoStartOnCreateInFlight(task.Metadata) || autoStartOnCreateClaimed {
 		sessions, err := s.repo.ListTaskSessions(ctx, task.ID)
 		if err != nil {
@@ -2095,6 +2101,26 @@ func (s *Service) autoStartTaskForLoadedStep(ctx context.Context, task *models.T
 			s.completeAutoStartOnCreate(asyncCtx, task.ID, eventName)
 		}
 	}()
+}
+
+func taskRequiresManualForkPRStart(task *models.Task) bool {
+	if task == nil || task.Metadata == nil {
+		return false
+	}
+	required, _ := task.Metadata[models.MetaKeyForkPRRequiresManualStart].(bool)
+	return required
+}
+
+func (s *Service) skipForkPRAutoStart(ctx context.Context, task *models.Task, eventName string, autoStartOnCreateClaimed bool) bool {
+	if !taskRequiresManualForkPRStart(task) {
+		return false
+	}
+	s.logger.Info(eventName+": fork review task is waiting for a manual start",
+		zap.String("task_id", task.ID))
+	if autoStartOnCreateClaimed || models.HasAutoStartOnCreateIntent(task.Metadata) || models.HasAutoStartOnCreateInFlight(task.Metadata) {
+		s.discardAutoStartOnCreate(ctx, task.ID, eventName)
+	}
+	return true
 }
 
 // autoStartOfficeTaskForLoadedStep is the Office-aware counterpart of the
@@ -7215,6 +7241,7 @@ func assembleMachineState(task *models.Task, session *models.TaskSession, isPass
 	}
 	state.SessionID = session.ID
 	state.SessionState = string(session.State)
+	state.AgentProfileID = session.AgentProfileID
 	if session.Metadata != nil {
 		if wd, ok := session.Metadata["workflow_data"].(map[string]any); ok {
 			state.Data = wd
