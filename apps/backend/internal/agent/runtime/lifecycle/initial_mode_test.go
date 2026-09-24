@@ -153,3 +153,36 @@ type agentWithoutInitialMode struct {
 func (a *agentWithoutInitialMode) Runtime() *agents.RuntimeConfig {
 	return &agents.RuntimeConfig{}
 }
+
+// The container reads this directory through the session bind mount, so the
+// host path names nothing it can open. Exporting it left the agent without the
+// mode and without the mounted session state.
+func TestApplyInitialModeGivesContainersTheMountedPath(t *testing.T) {
+	m := initialModeManager(t)
+	env := map[string]string{}
+
+	outcome := m.applyInitialMode(env, "exec-1", claudeACPAgent(t), "bypassPermissions", "local_docker")
+
+	if !outcome.Delivered {
+		t.Fatalf("outcome = %+v, want the mode delivered", outcome)
+	}
+	if got := env["CLAUDE_CONFIG_DIR"]; got != "/root/.claude" {
+		t.Errorf("CLAUDE_CONFIG_DIR = %q, want the container session directory", got)
+	}
+}
+
+// The host launch keeps reading the materialized directory directly.
+func TestApplyInitialModeGivesHostLaunchesTheMaterializedPath(t *testing.T) {
+	m := initialModeManager(t)
+	env := map[string]string{}
+
+	m.applyInitialMode(env, "exec-1", claudeACPAgent(t), "bypassPermissions", "worktree")
+
+	got := env["CLAUDE_CONFIG_DIR"]
+	if got == "" || got == "/root/.claude" {
+		t.Fatalf("CLAUDE_CONFIG_DIR = %q, want a host path", got)
+	}
+	if _, err := os.Stat(filepath.Join(got, "settings.json")); err != nil {
+		t.Fatalf("settings file: %v", err)
+	}
+}

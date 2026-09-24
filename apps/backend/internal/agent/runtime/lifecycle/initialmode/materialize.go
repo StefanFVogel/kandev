@@ -22,6 +22,11 @@ type Request struct {
 	ModeKeyPath []string
 	// ModeValue is the agent-specific value to write at that path.
 	ModeValue string
+	// LinkSourceEntries mirrors SourceDir into TargetDir with symlinks. A
+	// container reads TargetDir through a bind mount, where a link to a host
+	// path resolves to nothing, so those launches set this false and receive
+	// the settings file alone.
+	LinkSourceEntries bool
 }
 
 // Materialize prepares TargetDir so an agent started against it behaves exactly
@@ -29,7 +34,7 @@ type Request struct {
 // requested mode.
 //
 // Every entry of SourceDir other than the settings file is linked rather than
-// copied. The configuration directory holds the agent's credentials, and a
+// copied, when the caller asks for it. The configuration directory holds the agent's credentials, and a
 // session must not get a stale duplicate of them: a token the agent refreshes
 // has to land in the real file, and a secret must not be multiplied across one
 // directory per session. The settings file itself is the one entry Kandev owns,
@@ -46,8 +51,10 @@ func Materialize(req Request) (string, error) {
 	if err := os.MkdirAll(req.TargetDir, 0o700); err != nil {
 		return "", fmt.Errorf("initialmode: create %s: %w", req.TargetDir, err)
 	}
-	if err := linkSourceEntries(req); err != nil {
-		return "", err
+	if req.LinkSourceEntries {
+		if err := linkSourceEntries(req); err != nil {
+			return "", err
+		}
 	}
 	if err := writeSettings(req); err != nil {
 		return "", err

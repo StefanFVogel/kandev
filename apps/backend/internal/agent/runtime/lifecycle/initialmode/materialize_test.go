@@ -14,6 +14,9 @@ func claudeRequest(source, target string) Request {
 		SettingsFileName: "settings.json",
 		ModeKeyPath:      []string{"permissions", "defaultMode"},
 		ModeValue:        "bypassPermissions",
+		// The host launch reads the directory directly, so it keeps the links
+		// to the user's real configuration.
+		LinkSourceEntries: true,
 	}
 }
 
@@ -181,5 +184,29 @@ func TestMaterializeRejectsIncompleteRequest(t *testing.T) {
 	}
 	if _, err := Materialize(Request{SettingsFileName: "settings.json", ModeKeyPath: []string{"a"}}); err == nil {
 		t.Fatal("expected an error for a request without a target directory")
+	}
+}
+
+// A container reaches this directory through a bind mount, where a symlink to
+// a host path resolves to nothing. Linking the user's entries there produced a
+// directory full of dangling links instead of a usable configuration.
+func TestMaterializeSkipsSourceLinksWhenNotRequested(t *testing.T) {
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, ".credentials.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatalf("seed source: %v", err)
+	}
+	target := filepath.Join(t.TempDir(), "session")
+
+	req := claudeRequest(source, target)
+	req.LinkSourceEntries = false
+	if _, err := Materialize(req); err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+
+	if _, err := os.Lstat(filepath.Join(target, ".credentials.json")); !os.IsNotExist(err) {
+		t.Fatalf("credentials entry = %v, want it absent from a container directory", err)
+	}
+	if got := readSettings(t, target); got == nil {
+		t.Fatal("settings file missing; the mode must still be delivered")
 	}
 }

@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,7 +65,10 @@ func (m *Manager) applyInitialMode(
 	}
 
 	settingsValue, _ := delivery.SettingsValue(mode)
-	configDir, err := m.materializeInitialModeConfigDir(executionID, runtimeCfg, delivery, settingsValue)
+	containerized := containerRuntimeNeedsSandboxDeclaration(executorType)
+	configDir, err := m.materializeInitialModeConfigDir(
+		executionID, runtimeCfg, delivery, settingsValue, containerized,
+	)
 	if err != nil {
 		outcome.Reason = err.Error()
 		m.logger.Warn("could not deliver the session mode at start",
@@ -96,23 +100,44 @@ func (m *Manager) applyInitialMode(
 
 // materializeInitialModeConfigDir prepares the per-session configuration
 // directory and returns the path to hand the agent.
+// It returns the path the agent process must be given, which is not always the
+// path Kandev writes: a container reads the same directory through the session
+// bind mount at SessionDirTarget, so it is told that path instead. Host links
+// are skipped there because they would point at directories the container
+// cannot see.
 func (m *Manager) materializeInitialModeConfigDir(
 	executionID string,
 	runtimeCfg *agents.RuntimeConfig,
 	delivery agents.InitialModeDelivery,
 	settingsValue string,
+	containerized bool,
 ) (string, error) {
-	target := SessionDirHostPath(m.dataDir, executionID, runtimeCfg.SessionConfig.SessionDirTemplate)
+	sessionDir := SessionDirHostPath(m.dataDir, executionID, runtimeCfg.SessionConfig.SessionDirTemplate)
+	agentVisibleDir := sessionDir
+	if containerized {
+		// Only the mounted session directory reaches the process. Without a
+		// declared target there is nothing to point at, and a host path would
+		// name a directory that does not exist in the container.
+		if sessionDir == "" || runtimeCfg.SessionConfig.SessionDirTarget == "" {
+			return "", fmt.Errorf("agent declares no container session directory for this runtime")
+		}
+		agentVisibleDir = runtimeCfg.SessionConfig.SessionDirTarget
+	}
+	target := sessionDir
 	if target == "" {
 		target = filepath.Join(InstanceSessionRoot(m.dataDir, executionID), "agent-config")
 	}
-	return initialmode.Materialize(initialmode.Request{
-		SourceDir:        resolveAgentConfigDir(delivery),
-		TargetDir:        target,
-		SettingsFileName: delivery.SettingsFileName,
-		ModeKeyPath:      delivery.ModeKeyPath,
-		ModeValue:        settingsValue,
-	})
+	if _, err := initialmode.Materialize(initialmode.Request{
+		SourceDir:         resolveAgentConfigDir(delivery),
+		TargetDir:         target,
+		SettingsFileName:  delivery.SettingsFileName,
+		ModeKeyPath:       delivery.ModeKeyPath,
+		ModeValue:         settingsValue,
+		LinkSourceEntries: !containerized,
+	}); err != nil {
+		return "", err
+	}
+	return agentVisibleDir, nil
 }
 
 // resolveAgentConfigDir locates the user's existing agent configuration
