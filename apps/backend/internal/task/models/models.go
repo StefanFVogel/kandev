@@ -1674,6 +1674,15 @@ const (
 	PermissionStatusExpired PermissionStatus = "expired"
 )
 
+// PermissionDecision records the option and policy source that resolved a
+// permission request. Human decisions continue to use PermissionResolutionAudit;
+// this metadata shape is also available to other decision sources.
+type PermissionDecision struct {
+	OptionID   string `json:"option_id"`
+	OptionKind string `json:"option_kind"`
+	Source     string `json:"source"`
+}
+
 type PermissionResolutionActorKind string
 
 const (

@@ -1,4 +1,5 @@
 import { test, expect } from "../../fixtures/test-base";
+import type { ApiClient } from "../../helpers/api-client";
 import { SessionPage } from "../../pages/session-page";
 
 /**
@@ -64,12 +65,28 @@ test.describe("Unattended permission for a state-changing Git command", () => {
 
     // Nobody answered anything: no prompt was ever surfaced.
     await expect(session.permissionActionRows()).toHaveCount(0);
+    await expect(session.chat).toContainText(COMMITTED_LINE);
+
+    const history = await readAutoApprovalHistory(apiClient, task.session_id);
+    expect(history).toMatchObject({
+      status: "approved",
+      permission_decision: {
+        option_id: "allow",
+        option_kind: "allow_once",
+        source: "auto_approve",
+      },
+    });
 
     // The acceptance evidence is the commit object. Assert on the transcript
     // first so the locator auto-waits for the scenario's closing line instead
     // of racing a one-shot read against it.
-    await expect(session.chat).toContainText(COMMITTED_LINE);
     expect(await readCommittedSha(session)).toMatch(/^[0-9a-f]{7,40}$/);
+
+    await testPage.reload();
+    await session.waitForLoad();
+    await session.waitForChatIdle({ timeout: 60_000 });
+    expect(await readAutoApprovalHistory(apiClient, task.session_id)).toEqual(history);
+    await expect(session.chat).toContainText(COMMITTED_LINE);
   });
 
   test("the default profile holds the commit until a person answers", async ({
@@ -96,6 +113,7 @@ test.describe("Unattended permission for a state-changing Git command", () => {
 
     // The call must stop here rather than proceeding on its own.
     await expect(session.permissionApproveButtons()).toHaveCount(1, { timeout: 30_000 });
+    await expect(session.chat).not.toContainText(COMMITTED_LINE);
 
     await session.permissionApproveButtons().first().click();
     await session.waitForChatIdle({ timeout: 60_000 });
@@ -117,4 +135,10 @@ async function readCommittedSha(session: SessionPage): Promise<string> {
   const transcript = (await session.chat.textContent()) ?? "";
   const match = transcript.match(/git-commit-permission: committed ([0-9a-f]{7,40})/);
   return match ? match[1] : "";
+}
+
+async function readAutoApprovalHistory(apiClient: ApiClient, sessionId: string): Promise<unknown> {
+  const { messages } = await apiClient.listSessionMessages(sessionId);
+  const permission = messages.find((message) => message.type === "permission_request");
+  return permission?.metadata;
 }

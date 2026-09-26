@@ -188,7 +188,7 @@ func (a *Adapter) newSession(ctx context.Context, mcpServers []types.McpServer) 
 
 	// Emit initial session mode if the agent returned mode state
 	if resp.Modes != nil {
-		a.emitInitialModeState(resp.Modes)
+		a.emitInitialModeState(sessionID, resp.Modes)
 	}
 
 	// Emit session models when the session exposes a model-shaped config option.
@@ -567,7 +567,7 @@ func (a *Adapter) LoadSession(ctx context.Context, sessionID string, mcpServers 
 
 	// Emit initial session mode if the agent returned mode state
 	if resp.Modes != nil {
-		a.emitInitialModeState(resp.Modes)
+		a.emitInitialModeState(sessionID, resp.Modes)
 	}
 
 	// Emit session models if the agent returned model state, or if it exposes
@@ -721,7 +721,7 @@ func (a *Adapter) emitReplayPlan(sessionID string, replayPlan *acp.SessionUpdate
 
 // emitInitialModeState emits a session_mode event from the session response's Modes field.
 // Called after session/new and session/load to provide the initial mode state.
-func (a *Adapter) emitInitialModeState(modes *acp.SessionModeState) {
+func (a *Adapter) emitInitialModeState(sessionID string, modes *acp.SessionModeState) {
 	availModes := make([]streams.SessionModeInfo, 0, len(modes.AvailableModes))
 	for _, m := range modes.AvailableModes {
 		availModes = append(availModes, streams.SessionModeInfo{
@@ -734,11 +734,11 @@ func (a *Adapter) emitInitialModeState(modes *acp.SessionModeState) {
 	a.mu.Lock()
 	a.availableModes = availModes
 	a.mu.Unlock()
-	a.noteCurrentMode(string(modes.CurrentModeId))
+	a.noteCurrentMode(sessionID, string(modes.CurrentModeId))
 
 	a.sendUpdate(AgentEvent{
 		Type:           streams.EventTypeSessionMode,
-		SessionID:      a.sessionID,
+		SessionID:      sessionID,
 		CurrentModeID:  string(modes.CurrentModeId),
 		AvailableModes: availModes,
 	})
@@ -871,6 +871,11 @@ func currentModelFromConfig(options []streams.ConfigOption) string {
 // Echoing the request made a clamped or ignored mode look identical to an
 // applied one.
 func (a *Adapter) SetMode(ctx context.Context, modeID string) (streams.ModeResult, error) {
+	if err := a.lockModeChange(ctx); err != nil {
+		return streams.ModeResult{Requested: modeID}, err
+	}
+	defer a.modeChangeMu.Unlock()
+
 	a.mu.RLock()
 	conn := a.acpConn
 	sessionID := a.sessionID
@@ -879,6 +884,10 @@ func (a *Adapter) SetMode(ctx context.Context, modeID string) (streams.ModeResul
 	if conn == nil {
 		return streams.ModeResult{Requested: modeID}, fmt.Errorf("adapter not initialized")
 	}
+	if sessionID == "" {
+		return streams.ModeResult{Requested: modeID}, fmt.Errorf("no active session: call NewSession before SetMode")
+	}
+	baseline := a.currentModeSnapshot().generation
 
 	_, err := conn.SetSessionMode(ctx, acp.SetSessionModeRequest{
 		SessionId: acp.SessionId(sessionID),
@@ -888,9 +897,13 @@ func (a *Adapter) SetMode(ctx context.Context, modeID string) (streams.ModeResul
 		return streams.ModeResult{Requested: modeID}, fmt.Errorf("set session mode failed: %w", err)
 	}
 
-	result := a.awaitModeSettle(ctx, modeID)
+	result := a.awaitModeSettle(ctx, sessionID, modeID, baseline)
 
 	a.mu.RLock()
+	if a.sessionID != sessionID {
+		a.mu.RUnlock()
+		return result, nil
+	}
 	cachedModes := a.availableModes
 	a.mu.RUnlock()
 
@@ -917,7 +930,7 @@ func (a *Adapter) SetMode(ctx context.Context, modeID string) (streams.ModeResul
 // alongside it so the mismatch stays visible.
 func sessionModeEventFields(requested string, result streams.ModeResult) (currentModeID, requestedModeID string) {
 	if !result.Confirmed || result.Effective == "" {
-		return requested, ""
+		return "", requested
 	}
 	if result.Effective == requested {
 		return requested, ""

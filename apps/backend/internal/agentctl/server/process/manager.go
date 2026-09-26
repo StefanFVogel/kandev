@@ -2784,9 +2784,14 @@ func (m *Manager) handlePermissionRequest(ctx context.Context, req *adapter.Perm
 	// person can answer it; auto-approval must never be the reason a call is
 	// refused without anyone seeing it.
 	if m.cfg.AutoApprovePermissions {
-		if response, approved := m.autoApprovePermission(req); approved {
-			m.recordAutoApprovedPermission(pendingID, req, response.OptionID)
-			return response, nil
+		if decision, approved := m.autoApprovePermission(req); approved {
+			if m.recordAutoApprovedPermission(pendingID, req, decision.option) {
+				return decision.response, nil
+			}
+			m.logger.Error("could not queue automatic permission decision; falling through to prompt",
+				zap.String("pending_id", pendingID),
+				zap.String("option_id", decision.option.OptionID),
+				zap.String("option_kind", string(decision.option.Kind)))
 		}
 	}
 	if response, approved := m.autoApproveInjectedKandevPermission(req); approved {
@@ -2869,7 +2874,12 @@ func (m *Manager) handlePermissionRequest(ctx context.Context, req *adapter.Perm
 // exists, including for an empty option list, so the caller falls through to
 // the pending permission flow rather than answering with an option the provider
 // meant as a refusal.
-func (m *Manager) autoApprovePermission(req *adapter.PermissionRequest) (*adapter.PermissionResponse, bool) {
+type autoApprovalDecision struct {
+	response *adapter.PermissionResponse
+	option   adapter.PermissionOption
+}
+
+func (m *Manager) autoApprovePermission(req *adapter.PermissionRequest) (autoApprovalDecision, bool) {
 	var selectedOption *adapter.PermissionOption
 	for i := range req.Options {
 		if isAllowPermissionKind(req.Options[i].Kind) {
@@ -2880,15 +2890,16 @@ func (m *Manager) autoApprovePermission(req *adapter.PermissionRequest) (*adapte
 	if selectedOption == nil {
 		m.logger.Info("auto-approve found no allow option, prompting instead",
 			zap.Int("option_count", len(req.Options)))
-		return nil, false
+		return autoApprovalDecision{}, false
 	}
 
 	m.logger.Info("auto-approving permission request",
 		zap.String("option_id", selectedOption.OptionID),
 		zap.String("kind", string(selectedOption.Kind)))
 
-	return &adapter.PermissionResponse{
-		OptionID: selectedOption.OptionID,
+	return autoApprovalDecision{
+		response: &adapter.PermissionResponse{OptionID: selectedOption.OptionID},
+		option:   *selectedOption,
 	}, true
 }
 
@@ -2900,9 +2911,10 @@ func (m *Manager) autoApprovePermission(req *adapter.PermissionRequest) (*adapte
 // evidence is an agentctl log line. A session where Kandev answered then looks
 // exactly like one where the agent never asked.
 //
-// Delivery is best-effort. The agent already has its answer, so a full updates
-// channel must not block the turn.
-func (m *Manager) recordAutoApprovedPermission(pendingID string, req *adapter.PermissionRequest, optionID string) {
+// An automatic approval is returned only after its decision event enters the
+// lifecycle stream. A full channel parks this request; a stopped stream refuses
+// the approval so the caller can retain the interactive permission path.
+func (m *Manager) recordAutoApprovedPermission(pendingID string, req *adapter.PermissionRequest, option adapter.PermissionOption) bool {
 	pending := &PendingPermission{
 		ID:        pendingID,
 		RequestID: uuid.NewString(),
@@ -2913,15 +2925,10 @@ func (m *Manager) recordAutoApprovedPermission(pendingID string, req *adapter.Pe
 	pending.Snapshot = m.permissionSnapshot(pending)
 
 	event := m.permissionRequestEvent(pending)
-	event.AutoApprovedOptionID = optionID
-
-	select {
-	case m.updatesCh <- event:
-	default:
-		m.logger.Warn("dropped auto-approved permission record, updates channel full",
-			zap.String("pending_id", pendingID),
-			zap.String("option_id", optionID))
-	}
+	event.AutoApprovedOptionID = option.OptionID
+	event.AutoApprovedOptionKind = string(option.Kind)
+	event.AutoApprovalSource = streams.PermissionDecisionSourceAutoApprove
+	return m.sendUpdateBlocking(event)
 }
 
 // sendPermissionNotification sends a permission request notification through the updates channel.

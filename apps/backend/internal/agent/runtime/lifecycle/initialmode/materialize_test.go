@@ -7,16 +7,12 @@ import (
 	"testing"
 )
 
-func claudeRequest(source, target string) Request {
+func claudeRequest(target string) Request {
 	return Request{
-		SourceDir:        source,
 		TargetDir:        target,
 		SettingsFileName: "settings.json",
 		ModeKeyPath:      []string{"permissions", "defaultMode"},
 		ModeValue:        "bypassPermissions",
-		// The host launch reads the directory directly, so it keeps the links
-		// to the user's real configuration.
-		LinkSourceEntries: true,
 	}
 }
 
@@ -45,10 +41,9 @@ func modeOf(t *testing.T, settings map[string]any) string {
 
 // AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.7
 func TestMaterializeWritesModeIntoSettings(t *testing.T) {
-	source := t.TempDir()
 	target := filepath.Join(t.TempDir(), "session")
 
-	dir, err := Materialize(claudeRequest(source, target))
+	dir, err := Materialize(claudeRequest(target))
 	if err != nil {
 		t.Fatalf("Materialize returned error: %v", err)
 	}
@@ -60,22 +55,19 @@ func TestMaterializeWritesModeIntoSettings(t *testing.T) {
 	}
 }
 
-// The user's own settings must survive; only the mode is Kandev's to set.
-func TestMaterializeMergesExistingSettings(t *testing.T) {
-	source := t.TempDir()
-	existing := `{"model":"opus","permissions":{"allow":["Bash(git status:*)"]},"env":{"FOO":"bar"}}`
-	if err := os.WriteFile(filepath.Join(source, "settings.json"), []byte(existing), 0o600); err != nil {
-		t.Fatalf("seed settings: %v", err)
-	}
+// The executor passes only settings from a bundle selected for this session.
+func TestMaterializeMergesExplicitSelectedSettings(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "session")
+	req := claudeRequest(target)
+	req.SettingsJSON = []byte(`{"model":"opus","permissions":{"allow":["Bash(git status:*)"]},"env":{"SELECTED":"value"}}`)
 
-	if _, err := Materialize(claudeRequest(source, target)); err != nil {
+	if _, err := Materialize(req); err != nil {
 		t.Fatalf("Materialize returned error: %v", err)
 	}
 
 	settings := readSettings(t, target)
-	if settings["model"] != "opus" {
-		t.Fatalf("model = %v, want opus", settings["model"])
+	if settings["model"] != "opus" || settings["env"].(map[string]any)["SELECTED"] != "value" {
+		t.Fatalf("selected settings were not preserved: %+v", settings)
 	}
 	permissions := settings["permissions"].(map[string]any)
 	allow, ok := permissions["allow"].([]any)
@@ -87,94 +79,53 @@ func TestMaterializeMergesExistingSettings(t *testing.T) {
 	}
 }
 
-// AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.8
-// The configuration directory holds the agent's credentials. A session must
-// reach the real file, not a stale duplicate, or a refreshed token is lost and
-// the secret is multiplied across one directory per session.
-func TestMaterializeLinksCredentialsRatherThanCopying(t *testing.T) {
-	source := t.TempDir()
-	credentials := filepath.Join(source, ".credentials.json")
-	if err := os.WriteFile(credentials, []byte(`{"token":"original"}`), 0o600); err != nil {
-		t.Fatalf("seed credentials: %v", err)
+// AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.15
+func TestMaterializeRejectsNonObjectSelectedSettings(t *testing.T) {
+	for name, raw := range map[string]string{
+		"null":      "null",
+		"scalar":    `"settings"`,
+		"array":     `[]`,
+		"malformed": `{not json`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := claudeRequest(filepath.Join(t.TempDir(), "session"))
+			req.SettingsJSON = []byte(raw)
+			if _, err := Materialize(req); err == nil {
+				t.Fatal("Materialize accepted a non-object settings root; want a controlled error")
+			}
+		})
 	}
-	if err := os.MkdirAll(filepath.Join(source, "plugins"), 0o700); err != nil {
-		t.Fatalf("seed plugins dir: %v", err)
-	}
-	target := filepath.Join(t.TempDir(), "session")
+}
 
-	if _, err := Materialize(claudeRequest(source, target)); err != nil {
+func TestMaterializeAcceptsEmptyObjectAndMissingSelection(t *testing.T) {
+	for name, raw := range map[string][]byte{
+		"empty object": []byte(`{}`),
+		"no selection": nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := claudeRequest(filepath.Join(t.TempDir(), "session"))
+			req.SettingsJSON = raw
+			if _, err := Materialize(req); err != nil {
+				t.Fatalf("Materialize returned error: %v", err)
+			}
+			if got := modeOf(t, readSettings(t, req.TargetDir)); got != "bypassPermissions" {
+				t.Fatalf("defaultMode = %q, want bypassPermissions", got)
+			}
+		})
+	}
+}
+
+func TestMaterializeWritesSettingsWithPrivatePermissions(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "session")
+	if _, err := Materialize(claudeRequest(target)); err != nil {
 		t.Fatalf("Materialize returned error: %v", err)
 	}
-
-	linked := filepath.Join(target, ".credentials.json")
-	info, err := os.Lstat(linked)
+	info, err := os.Stat(filepath.Join(target, "settings.json"))
 	if err != nil {
-		t.Fatalf("lstat linked credentials: %v", err)
+		t.Fatalf("stat settings: %v", err)
 	}
-	if info.Mode()&os.ModeSymlink == 0 {
-		t.Fatal("credentials were copied; they must be linked so a refresh reaches the real file")
-	}
-
-	// A write through the link must land in the source.
-	if err := os.WriteFile(linked, []byte(`{"token":"refreshed"}`), 0o600); err != nil {
-		t.Fatalf("write through link: %v", err)
-	}
-	raw, err := os.ReadFile(credentials)
-	if err != nil {
-		t.Fatalf("read source credentials: %v", err)
-	}
-	if string(raw) != `{"token":"refreshed"}` {
-		t.Fatalf("source credentials = %s, want the refreshed value", raw)
-	}
-
-	if _, err := os.Lstat(filepath.Join(target, "plugins")); err != nil {
-		t.Fatalf("directory entry not linked: %v", err)
-	}
-}
-
-// A first run has no configuration directory yet; that is not a failure.
-func TestMaterializeWithoutSourceDirectory(t *testing.T) {
-	target := filepath.Join(t.TempDir(), "session")
-
-	if _, err := Materialize(claudeRequest(filepath.Join(t.TempDir(), "absent"), target)); err != nil {
-		t.Fatalf("Materialize returned error: %v", err)
-	}
-	if got := modeOf(t, readSettings(t, target)); got != "bypassPermissions" {
-		t.Fatalf("defaultMode = %q, want bypassPermissions", got)
-	}
-}
-
-// Malformed user settings must not block a launch.
-func TestMaterializeReplacesMalformedSettings(t *testing.T) {
-	source := t.TempDir()
-	if err := os.WriteFile(filepath.Join(source, "settings.json"), []byte("{not json"), 0o600); err != nil {
-		t.Fatalf("seed settings: %v", err)
-	}
-	target := filepath.Join(t.TempDir(), "session")
-
-	if _, err := Materialize(claudeRequest(source, target)); err != nil {
-		t.Fatalf("Materialize returned error: %v", err)
-	}
-	if got := modeOf(t, readSettings(t, target)); got != "bypassPermissions" {
-		t.Fatalf("defaultMode = %q, want bypassPermissions", got)
-	}
-}
-
-// Re-materializing an existing session directory must be idempotent.
-func TestMaterializeIsRepeatable(t *testing.T) {
-	source := t.TempDir()
-	if err := os.WriteFile(filepath.Join(source, ".credentials.json"), []byte(`{}`), 0o600); err != nil {
-		t.Fatalf("seed credentials: %v", err)
-	}
-	target := filepath.Join(t.TempDir(), "session")
-
-	for attempt := range 2 {
-		if _, err := Materialize(claudeRequest(source, target)); err != nil {
-			t.Fatalf("attempt %d: %v", attempt, err)
-		}
-	}
-	if got := modeOf(t, readSettings(t, target)); got != "bypassPermissions" {
-		t.Fatalf("defaultMode = %q, want bypassPermissions", got)
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("settings permissions = %#o, want %#o", got, 0o600)
 	}
 }
 
@@ -184,29 +135,5 @@ func TestMaterializeRejectsIncompleteRequest(t *testing.T) {
 	}
 	if _, err := Materialize(Request{SettingsFileName: "settings.json", ModeKeyPath: []string{"a"}}); err == nil {
 		t.Fatal("expected an error for a request without a target directory")
-	}
-}
-
-// A container reaches this directory through a bind mount, where a symlink to
-// a host path resolves to nothing. Linking the user's entries there produced a
-// directory full of dangling links instead of a usable configuration.
-func TestMaterializeSkipsSourceLinksWhenNotRequested(t *testing.T) {
-	source := t.TempDir()
-	if err := os.WriteFile(filepath.Join(source, ".credentials.json"), []byte("{}"), 0o600); err != nil {
-		t.Fatalf("seed source: %v", err)
-	}
-	target := filepath.Join(t.TempDir(), "session")
-
-	req := claudeRequest(source, target)
-	req.LinkSourceEntries = false
-	if _, err := Materialize(req); err != nil {
-		t.Fatalf("materialize: %v", err)
-	}
-
-	if _, err := os.Lstat(filepath.Join(target, ".credentials.json")); !os.IsNotExist(err) {
-		t.Fatalf("credentials entry = %v, want it absent from a container directory", err)
-	}
-	if got := readSettings(t, target); got == nil {
-		t.Fatal("settings file missing; the mode must still be delivered")
 	}
 }

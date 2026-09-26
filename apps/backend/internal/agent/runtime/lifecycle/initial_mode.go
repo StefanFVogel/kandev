@@ -2,15 +2,10 @@ package lifecycle
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/kandev/kandev/internal/agent/agents"
 	agentctlclient "github.com/kandev/kandev/internal/agent/runtime/agentctl"
-	"github.com/kandev/kandev/internal/agent/runtime/lifecycle/initialmode"
-	agentruntime "github.com/kandev/kandev/internal/agentruntime"
 	"github.com/kandev/kandev/internal/task/models"
 	"go.uber.org/zap"
 )
@@ -25,6 +20,8 @@ type initialModeOutcome struct {
 	Delivered bool
 	// Reason explains a mode that could not be delivered.
 	Reason string
+	// Request is installed by the executor after its selected settings are ready.
+	Request *AgentInitialModeRequest
 }
 
 // applyInitialMode configures the launch environment so the agent process
@@ -49,130 +46,106 @@ func (m *Manager) applyInitialMode(
 		return initialModeOutcome{}
 	}
 	outcome := initialModeOutcome{Mode: mode}
-	if agentConfig == nil || env == nil {
-		outcome.Reason = "no agent configuration for this launch"
-		return outcome
-	}
-	runtimeCfg := agentConfig.Runtime()
-	if runtimeCfg == nil {
-		outcome.Reason = "no agent configuration for this launch"
+	executor := models.ExecutorType(executorType)
+	runtimeCfg, reason := initialModeRuntimeConfig(env, agentConfig, mode, executor)
+	if reason != "" {
+		outcome.Reason = reason
 		return outcome
 	}
 	delivery := runtimeCfg.InitialMode
-	if !delivery.Delivers(mode) {
-		outcome.Reason = "agent declares no start-mode channel for " + mode
-		return outcome
+	if executor != models.ExecutorTypeSSH {
+		env[delivery.ConfigDirEnvVar] = runtimeCfg.SessionConfig.SessionDirTarget
 	}
-
-	settingsValue, _ := delivery.SettingsValue(mode)
-	containerized := containerRuntimeNeedsSandboxDeclaration(executorType)
-	configDir, err := m.materializeInitialModeConfigDir(
-		executionID, runtimeCfg, delivery, settingsValue, containerized,
-	)
-	if err != nil {
-		outcome.Reason = err.Error()
-		m.logger.Warn("could not deliver the session mode at start",
-			zap.String("execution_id", executionID),
-			zap.String("mode", mode),
-			zap.Error(err))
-		return outcome
-	}
-
-	env[delivery.ConfigDirEnvVar] = configDir
-	// A permissive mode can be disabled for the launched process identity. A
-	// container is the isolation that escape hatch exists for, so declare it
-	// there rather than leaving the mode silently downgraded.
 	if containerRuntimeNeedsSandboxDeclaration(executorType) {
-		for key, value := range delivery.SandboxEnv {
-			if _, present := env[key]; !present {
-				env[key] = value
-			}
-		}
+		applyInitialModeSandboxEnv(env, delivery.SandboxEnv)
 	}
-
-	outcome.Delivered = true
-	m.logger.Info("delivered session mode at start",
+	outcome.Request = &AgentInitialModeRequest{Mode: mode}
+	m.logger.Debug("prepared session mode for executor installation",
 		zap.String("execution_id", executionID),
-		zap.String("mode", mode),
-		zap.String("config_dir_env", delivery.ConfigDirEnvVar))
+		zap.String("mode", mode))
 	return outcome
 }
 
-// materializeInitialModeConfigDir prepares the per-session configuration
-// directory and returns the path to hand the agent.
-// It returns the path the agent process must be given, which is not always the
-// path Kandev writes: a container reads the same directory through the session
-// bind mount at SessionDirTarget, so it is told that path instead. Host links
-// are skipped there because they would point at directories the container
-// cannot see.
-func (m *Manager) materializeInitialModeConfigDir(
-	executionID string,
-	runtimeCfg *agents.RuntimeConfig,
-	delivery agents.InitialModeDelivery,
-	settingsValue string,
-	containerized bool,
-) (string, error) {
-	sessionDir := SessionDirHostPath(m.dataDir, executionID, runtimeCfg.SessionConfig.SessionDirTemplate)
-	agentVisibleDir := sessionDir
-	if containerized {
-		// Only the mounted session directory reaches the process. Without a
-		// declared target there is nothing to point at, and a host path would
-		// name a directory that does not exist in the container.
-		if sessionDir == "" || runtimeCfg.SessionConfig.SessionDirTarget == "" {
-			return "", fmt.Errorf("agent declares no container session directory for this runtime")
-		}
-		agentVisibleDir = runtimeCfg.SessionConfig.SessionDirTarget
+func initialModeRuntimeConfig(
+	env map[string]string,
+	agentConfig agents.Agent,
+	mode string,
+	executor models.ExecutorType,
+) (*agents.RuntimeConfig, string) {
+	if agentConfig == nil || env == nil {
+		return nil, "no agent configuration for this launch"
 	}
-	target := sessionDir
-	if target == "" {
-		target = filepath.Join(InstanceSessionRoot(m.dataDir, executionID), "agent-config")
+	runtimeCfg := agentConfig.Runtime()
+	if runtimeCfg == nil {
+		return nil, "no agent configuration for this launch"
 	}
-	if _, err := initialmode.Materialize(initialmode.Request{
-		SourceDir:         resolveAgentConfigDir(delivery),
-		TargetDir:         target,
-		SettingsFileName:  delivery.SettingsFileName,
-		ModeKeyPath:       delivery.ModeKeyPath,
-		ModeValue:         settingsValue,
-		LinkSourceEntries: !containerized,
-	}); err != nil {
-		return "", err
+	delivery := runtimeCfg.InitialMode
+	if !delivery.Delivers(mode) {
+		return nil, "agent declares no start-mode channel for " + mode
 	}
-	return agentVisibleDir, nil
+	if configuredDir := env[delivery.ConfigDirEnvVar]; strings.TrimSpace(configuredDir) != "" {
+		return nil, "agent configuration directory is explicitly configured and cannot be replaced safely"
+	}
+	if delivery.ConfigDirEnvVar == "" {
+		return nil, "agent declares no configuration directory for start-mode delivery"
+	}
+	if !executorSupportsInitialMode(executor) {
+		return nil, "executor cannot provide an isolated configuration directory without changing authentication"
+	}
+	if executor != models.ExecutorTypeSSH && runtimeCfg.SessionConfig.SessionDirTarget == "" {
+		return nil, "agent declares no isolated configuration directory for this executor"
+	}
+	return runtimeCfg, ""
 }
 
-// resolveAgentConfigDir locates the user's existing agent configuration
-// directory: the agent's own environment variable when the operator set one,
-// otherwise the agent's documented default under the user's home.
-func resolveAgentConfigDir(delivery agents.InitialModeDelivery) string {
-	if delivery.ConfigDirEnvVar != "" {
-		if existing := strings.TrimSpace(os.Getenv(delivery.ConfigDirEnvVar)); existing != "" {
-			return existing
-		}
-	}
-	if delivery.DefaultConfigDirTemplate == "" {
-		return ""
-	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return ""
-	}
-	return filepath.Join(home, strings.TrimPrefix(delivery.DefaultConfigDirTemplate, "{home}/"))
-}
-
-// containerRuntimeNeedsSandboxDeclaration reports whether this executor runs
-// the agent inside container isolation, where a permissive mode would otherwise
-// be disabled for the container's root process identity.
-func containerRuntimeNeedsSandboxDeclaration(executorType string) bool {
-	switch models.ExecutorType(executorType).Runtime() {
-	case agentruntime.RuntimeDocker, agentruntime.RuntimeRemoteDocker, agentruntime.RuntimeKubernetes:
+func executorSupportsInitialMode(executor models.ExecutorType) bool {
+	switch executor {
+	case models.ExecutorTypeLocalDocker, models.ExecutorTypeRemoteDocker,
+		models.ExecutorTypeSSH, models.ExecutorTypeKubernetes:
 		return true
 	default:
 		return false
 	}
 }
 
+func applyInitialModeSandboxEnv(env, sandboxEnv map[string]string) {
+	for key, value := range sandboxEnv {
+		if _, present := env[key]; present {
+			continue
+		}
+		env[key] = value
+	}
+}
+
+func (m *Manager) reportInitialModeWarning(
+	onProgress PrepareProgressCallback,
+	taskID, sessionID, mode, reason string,
+) {
+	if onProgress == nil {
+		if m == nil || m.eventPublisher == nil {
+			return
+		}
+		onProgress = m.newProgressCallback(taskID, sessionID)
+	}
+	step := beginStep("Configure start permission mode")
+	step.Warning = "The requested permission mode was not installed before the first turn."
+	step.WarningDetail = "Requested mode: " + mode
+	if strings.TrimSpace(reason) != "" {
+		step.WarningDetail += ". Reason: " + reason
+	}
+	completeStepSuccess(&step)
+	onProgress(step, 0, 0)
+}
+
+// containerRuntimeNeedsSandboxDeclaration reports whether this executor runs
+// the agent inside container isolation, where a permissive mode would otherwise
+// be disabled for the container's root process identity.
+func containerRuntimeNeedsSandboxDeclaration(executorType string) bool {
+	return models.ExecutorType(executorType).Runtime().IsContainerized()
+}
+
 // launchSessionMode resolves the mode this launch should start in.
-//
+
 // It mirrors effectiveSessionMode's precedence: a persisted session mode — set
 // by the user's toggle or a set_session_mode workflow action — wins over the
 // agent profile's mode. Reading it here rather than after session/new is the

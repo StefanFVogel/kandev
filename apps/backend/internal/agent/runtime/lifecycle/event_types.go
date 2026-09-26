@@ -480,8 +480,10 @@ type PermissionRequestEventPayload struct {
 	// AutoApprovedOptionID names the option agentctl already selected. A
 	// nonempty value makes this payload an audit record of an answered
 	// request rather than a prompt awaiting a person.
-	AutoApprovedOptionID string                 `json:"auto_approved_option_id,omitempty"`
-	ActionDetails        map[string]interface{} `json:"action_details,omitempty"`
+	AutoApprovedOptionID   string                 `json:"auto_approved_option_id,omitempty"`
+	AutoApprovedOptionKind string                 `json:"auto_approved_option_kind,omitempty"`
+	AutoApprovalSource     string                 `json:"auto_approval_source,omitempty"`
+	ActionDetails          map[string]interface{} `json:"action_details,omitempty"`
 }
 
 // ShellOutputEventPayload is the payload for shell output events.

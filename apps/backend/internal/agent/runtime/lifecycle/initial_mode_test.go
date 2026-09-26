@@ -1,9 +1,11 @@
 package lifecycle
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kandev/kandev/internal/agent/agents"
@@ -19,7 +21,7 @@ func initialModeManager(t *testing.T) *Manager {
 	return &Manager{dataDir: t.TempDir(), logger: newTestLogger()}
 }
 
-func deliveredSettingsMode(t *testing.T, configDir string) string {
+func deliveredSettings(t *testing.T, configDir string) map[string]any {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(configDir, "settings.json"))
 	if err != nil {
@@ -29,6 +31,12 @@ func deliveredSettingsMode(t *testing.T, configDir string) string {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("decode delivered settings: %v", err)
 	}
+	return decoded
+}
+
+func deliveredSettingsMode(t *testing.T, configDir string) string {
+	t.Helper()
+	decoded := deliveredSettings(t, configDir)
 	permissions, ok := decoded["permissions"].(map[string]any)
 	if !ok {
 		t.Fatalf("delivered settings carry no permissions object: %+v", decoded)
@@ -42,33 +50,68 @@ func TestApplyInitialModeConfiguresLaunchedProcess(t *testing.T) {
 	m := initialModeManager(t)
 	env := map[string]string{}
 
-	outcome := m.applyInitialMode(env, "exec-1", claudeACPAgent(t), "bypassPermissions", "worktree")
+	outcome := m.applyInitialMode(env, "exec-1", claudeACPAgent(t), "bypassPermissions", "local_docker")
 
-	if !outcome.Delivered {
-		t.Fatalf("outcome = %+v, want delivered", outcome)
+	if outcome.Delivered || outcome.Request == nil {
+		t.Fatalf("outcome = %+v, want a pending executor installation", outcome)
 	}
 	configDir := env["CLAUDE_CONFIG_DIR"]
 	if configDir == "" {
 		t.Fatal("CLAUDE_CONFIG_DIR was not exported to the launch environment")
 	}
-	if got := deliveredSettingsMode(t, configDir); got != "bypassPermissions" {
-		t.Fatalf("delivered mode = %q, want bypassPermissions", got)
+	if configDir != "/root/.claude" {
+		t.Fatalf("CLAUDE_CONFIG_DIR = %q, want the container session path", configDir)
 	}
 }
 
-// AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.8
-// The per-session directory lives under the Kandev root, never in the user's
-// shared configuration directory.
-func TestApplyInitialModeWritesOnlyUnderKandevRoot(t *testing.T) {
+// AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.12
+func TestApplyInitialModeDoesNotCopyUnselectedHostConfiguration(t *testing.T) {
 	m := initialModeManager(t)
+	hostHome := t.TempDir()
+	hostConfigDir := filepath.Join(hostHome, ".claude")
+	if err := os.MkdirAll(hostConfigDir, 0o700); err != nil {
+		t.Fatalf("create host config directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(hostConfigDir, "settings.json"), []byte(`{"env":{"UNSELECTED_SENTINEL":"private"},"hooks":{"PreToolUse":[{"command":"secret-hook"}]}}`), 0o600); err != nil {
+		t.Fatalf("seed host settings: %v", err)
+	}
+	t.Setenv("HOME", hostHome)
 	env := map[string]string{}
 
-	m.applyInitialMode(env, "exec-1", claudeACPAgent(t), "acceptEdits", "worktree")
+	outcome := m.applyInitialMode(env, "exec-1", claudeACPAgent(t), "bypassPermissions", "local_docker")
+	if outcome.Delivered || outcome.Request == nil {
+		t.Fatalf("outcome = %+v, want a pending executor installation", outcome)
+	}
+	settingsDir := SessionDirHostPath(m.dataDir, "exec-1", claudeACPAgent(t).Runtime().SessionConfig.SessionDirTemplate)
+	executor := &DockerExecutor{kandevHomeDir: m.dataDir, logger: newTestLogger()}
+	req := &ExecutorCreateRequest{
+		InstanceID: "exec-1", AgentConfig: claudeACPAgent(t), InitialMode: outcome.Request,
+	}
+	if err := executor.seedSessionDir(context.Background(), req); err != nil {
+		t.Fatalf("seed session directory: %v", err)
+	}
+	settings := deliveredSettings(t, settingsDir)
+	if _, ok := settings["env"]; ok {
+		t.Fatalf("unselected host environment reached session settings: %+v", settings["env"])
+	}
+	if _, ok := settings["hooks"]; ok {
+		t.Fatalf("unselected host hooks reached session settings: %+v", settings["hooks"])
+	}
+}
 
-	configDir := env["CLAUDE_CONFIG_DIR"]
-	rel, err := filepath.Rel(m.dataDir, configDir)
-	if err != nil || rel == "" || rel[0] == '.' {
-		t.Fatalf("config dir %q is not inside the kandev root %q", configDir, m.dataDir)
+// A standalone host run can rely on authentication in its default config
+// directory, so Kandev leaves that path and its credentials in place.
+func TestApplyInitialModeLeavesHostAuthenticationDirectoryUntouched(t *testing.T) {
+	m := initialModeManager(t)
+	env := map[string]string{"ANTHROPIC_API_KEY": "test-key"}
+
+	outcome := m.applyInitialMode(env, "exec-1", claudeACPAgent(t), "bypassPermissions", "worktree")
+
+	if outcome.Delivered || outcome.Reason == "" {
+		t.Fatalf("outcome = %+v, want an unavailable result with a reason", outcome)
+	}
+	if len(env) != 1 || env["ANTHROPIC_API_KEY"] != "test-key" {
+		t.Fatalf("environment = %+v, want unchanged", env)
 	}
 }
 
@@ -80,11 +123,27 @@ func TestApplyInitialModeIsInertWithoutRequestedMode(t *testing.T) {
 
 	outcome := m.applyInitialMode(env, "exec-1", claudeACPAgent(t), "", "worktree")
 
-	if outcome.Mode != "" || outcome.Delivered {
+	if outcome.Mode != "" || outcome.Delivered || outcome.Request != nil {
 		t.Fatalf("outcome = %+v, want an inert result", outcome)
 	}
 	if len(env) != 1 || env["EXISTING"] != "value" {
 		t.Fatalf("env = %+v, want it unchanged", env)
+	}
+}
+
+func TestReportInitialModeWarningIncludesRequestedModeAndReason(t *testing.T) {
+	var reported []PrepareStep
+	reportInitialModeWarning := PrepareProgressCallback(func(step PrepareStep, _, _ int) {
+		reported = append(reported, step)
+	})
+	(&Manager{}).reportInitialModeWarning(reportInitialModeWarning, "task-1", "session-1", "bypassPermissions", "SSH upload failed")
+
+	if len(reported) != 1 {
+		t.Fatalf("reported steps = %d, want one warning", len(reported))
+	}
+	step := reported[0]
+	if step.Warning == "" || !strings.Contains(step.WarningDetail, "bypassPermissions") || !strings.Contains(step.WarningDetail, "SSH upload failed") {
+		t.Fatalf("warning step = %+v, want the requested mode and delivery reason", step)
 	}
 }
 
@@ -163,8 +222,8 @@ func TestApplyInitialModeGivesContainersTheMountedPath(t *testing.T) {
 
 	outcome := m.applyInitialMode(env, "exec-1", claudeACPAgent(t), "bypassPermissions", "local_docker")
 
-	if !outcome.Delivered {
-		t.Fatalf("outcome = %+v, want the mode delivered", outcome)
+	if outcome.Delivered || outcome.Request == nil {
+		t.Fatalf("outcome = %+v, want a pending executor installation", outcome)
 	}
 	if got := env["CLAUDE_CONFIG_DIR"]; got != "/root/.claude" {
 		t.Errorf("CLAUDE_CONFIG_DIR = %q, want the container session directory", got)
@@ -172,17 +231,17 @@ func TestApplyInitialModeGivesContainersTheMountedPath(t *testing.T) {
 }
 
 // The host launch keeps reading the materialized directory directly.
-func TestApplyInitialModeGivesHostLaunchesTheMaterializedPath(t *testing.T) {
+func TestApplyInitialModePreservesExplicitConfigurationDirectory(t *testing.T) {
 	m := initialModeManager(t)
-	env := map[string]string{}
+	expectedConfigDir := filepath.Join(t.TempDir(), "custom-claude-home")
+	env := map[string]string{"CLAUDE_CONFIG_DIR": expectedConfigDir}
 
-	m.applyInitialMode(env, "exec-1", claudeACPAgent(t), "bypassPermissions", "worktree")
+	outcome := m.applyInitialMode(env, "exec-1", claudeACPAgent(t), "bypassPermissions", "local_docker")
 
-	got := env["CLAUDE_CONFIG_DIR"]
-	if got == "" || got == "/root/.claude" {
-		t.Fatalf("CLAUDE_CONFIG_DIR = %q, want a host path", got)
+	if outcome.Delivered || outcome.Reason == "" || outcome.Request != nil {
+		t.Fatalf("outcome = %+v, want an unavailable result with a reason", outcome)
 	}
-	if _, err := os.Stat(filepath.Join(got, "settings.json")); err != nil {
-		t.Fatalf("settings file: %v", err)
+	if got := env["CLAUDE_CONFIG_DIR"]; got != expectedConfigDir {
+		t.Fatalf("CLAUDE_CONFIG_DIR = %q, want explicit path %q", got, expectedConfigDir)
 	}
 }

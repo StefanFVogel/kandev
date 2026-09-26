@@ -74,6 +74,13 @@ confirms it, and must make the winning source of the effective mode visible.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.9:** When the runtime refuses a mode for the launched process identity rather than for the session, the session reports the mode as unavailable with the reason. It does not run in a different mode silently.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.10:** **GIVEN** a profile requesting an unattended permission mode, **WHEN** a session starts, **THEN** the launched agent process is configured with that mode from its first turn.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.11:** **GIVEN** an executor whose process identity disables the requested mode in the agent runtime, **WHEN** a session starts, **THEN** Kandev either makes the mode available for that executor or reports it as unavailable with the reason.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.12:** A start mode does not copy host agent settings or credentials into an isolated executor unless the executor profile selected the applicable configuration or authentication bundle. An unselected host permission rule cannot change the launched agent.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.13:** For every executor on which Kandev reports a start mode as delivered, the launched agent can read the generated settings file at its configured path before its first turn. If transfer or preparation fails, Kandev reports the mode as undelivered.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.14:** When an opted-in portable settings bundle and a start mode target the same file, the agent reads the selected bundle's other settings and the requested start mode. A later transfer cannot erase the mode.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.15:** A valid JSON `null` or another non-object settings root cannot crash session preparation. Kandev either creates a valid session-owned object with the requested mode or reports a preparation error.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.16:** A mode report received during `session/set_mode`, including before the call returns, determines the confirmed effective mode for that request. A report from before that request cannot confirm it. Concurrent requests cannot attribute one report to both requests.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.17:** A start-mode path must not silently invalidate the agent's configured authentication or a user-selected agent configuration directory. If Kandev cannot preserve those inputs for an executor and authentication method, it reports start-mode delivery as unavailable with the reason.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.18:** On a phone or coarse pointer, the mode mismatch warning and both mode names are available through a visible touch control. The same mode choices remain available as on desktop.
 
 ### REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-003: Auto-approve approves or prompts, and never denies
 
@@ -99,6 +106,7 @@ removes the only path that works.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.8:** Enabling `auto_approve` never leaves a session less able to proceed than leaving it disabled. Any request the control does not approve remains answerable by a person.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.9:** Whether a permission request reached Kandev, which option Kandev selected, and whether Kandev answered with a cancellation are each determinable from recorded evidence, without reproducing the session.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.10:** **GIVEN** `auto_approve` is enabled and a request Kandev cannot approve, **WHEN** the session runs unattended, **THEN** the request is visible as pending rather than resolved, and answering it lets the call proceed.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.11:** After reload or session replay, each automatic approval still identifies its selected option ID, option kind, and automatic source in durable permission history; a dropped notification cannot silently erase this evidence.
 
 ### REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-004: The permission contract carries no unread field
 

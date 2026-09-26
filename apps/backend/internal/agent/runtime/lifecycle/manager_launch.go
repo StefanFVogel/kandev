@@ -990,14 +990,23 @@ func (m *Manager) launchBuildExecutorRequest(ctx context.Context, executionID st
 	// Give the agent process the mode it should start in. The post-creation
 	// session/set_mode below stays as the path for later switches and for
 	// agents without a declared channel.
-	initialMode := m.applyInitialMode(
-		env, executionID, agentConfig, m.launchSessionMode(ctx, reqWithWorktree, profileInfo), reqWithWorktree.ExecutorType,
-	)
-	if initialMode.Mode != "" && !initialMode.Delivered {
+	requestedMode := m.launchSessionMode(ctx, reqWithWorktree, profileInfo)
+	var initialMode initialModeOutcome
+	if requestedMode != "" && (reqWithWorktree.PreviousExecutionID != "" || reqWithWorktree.WorkspaceReuseRequired) {
+		initialMode = initialModeOutcome{
+			Mode:   requestedMode,
+			Reason: "an existing executor session retains its startup configuration",
+		}
+	} else {
+		initialMode = m.applyInitialMode(env, executionID, agentConfig, requestedMode, reqWithWorktree.ExecutorType)
+	}
+	if initialMode.Mode != "" && initialMode.Request == nil {
 		m.logger.Warn("session mode will only be applied after the session starts",
 			zap.String("execution_id", executionID),
 			zap.String("mode", initialMode.Mode),
 			zap.String("reason", initialMode.Reason))
+		m.reportInitialModeWarning(onProgress, reqWithWorktree.TaskID, reqWithWorktree.SessionID,
+			initialMode.Mode, initialMode.Reason)
 	}
 
 	acpMcpServers, err := m.resolveMcpServersWithParams(ctx, executionProfileID(reqWithWorktree), reqWithWorktree.Metadata, agentConfig)
@@ -1087,6 +1096,7 @@ func (m *Manager) launchBuildExecutorRequest(ctx context.Context, executionID st
 		AutoApprovePermissionsOverride: autoApproveOverride,
 		Metadata:                       metadata,
 		AgentConfig:                    agentConfig,
+		InitialMode:                    initialMode.Request,
 		ApprovedSecretEnvKeys:          append([]string(nil), reqWithWorktree.ApprovedSecretEnvKeys...),
 		McpServers:                     mcpServers,
 		PreviousExecutionID:            reqWithWorktree.PreviousExecutionID,
@@ -1114,7 +1124,33 @@ func (m *Manager) launchBuildExecutorRequest(ctx context.Context, executionID st
 
 	execInstance, err := rt.CreateInstance(launchCtx, execReq)
 	if err != nil {
+		if execReq.InitialMode != nil {
+			execReq.InitialMode.Reason = err.Error()
+			m.reportInitialModeWarning(onProgress, reqWithWorktree.TaskID, reqWithWorktree.SessionID,
+				execReq.InitialMode.Mode, execReq.InitialMode.Reason)
+		}
 		return nil, nil, nil, fmt.Errorf("failed to create execution: %w", err)
+	}
+	if execReq.InitialMode != nil {
+		if execReq.InitialMode.Delivered {
+			initialMode.Delivered = true
+			m.logger.Info("delivered session mode at start",
+				zap.String("execution_id", executionID),
+				zap.String("mode", execReq.InitialMode.Mode),
+				zap.String("config_dir", execReq.InitialMode.ConfigDir))
+		} else {
+			reason := execReq.InitialMode.Reason
+			if reason == "" {
+				reason = "executor did not confirm the agent-visible configuration file"
+				execReq.InitialMode.Reason = reason
+			}
+			m.logger.Warn("executor did not confirm session mode delivery",
+				zap.String("execution_id", executionID),
+				zap.String("mode", execReq.InitialMode.Mode),
+				zap.String("reason", reason))
+			m.reportInitialModeWarning(onProgress, reqWithWorktree.TaskID, reqWithWorktree.SessionID,
+				execReq.InitialMode.Mode, reason)
+		}
 	}
 	return execReq, execInstance, rt, nil
 }

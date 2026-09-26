@@ -33,16 +33,16 @@ func TestSessionModeEventFields(t *testing.T) {
 			wantRequested: "bypassPermissions",
 		},
 		{
-			name:        "silence after a successful answer leaves the requested mode standing",
-			requested:   "plan",
-			result:      streams.ModeResult{Requested: "plan", Effective: "default", Confirmed: false},
-			wantCurrent: "plan",
+			name:          "silence does not fabricate an effective mode",
+			requested:     "plan",
+			result:        streams.ModeResult{Requested: "plan", Confirmed: false},
+			wantRequested: "plan",
 		},
 		{
-			name:        "agent that never reported a mode reports the request",
-			requested:   "plan",
-			result:      streams.ModeResult{Requested: "plan", Effective: "", Confirmed: false},
-			wantCurrent: "plan",
+			name:          "agent that never reported a mode keeps the request separate",
+			requested:     "plan",
+			result:        streams.ModeResult{Requested: "plan", Effective: "", Confirmed: false},
+			wantRequested: "plan",
 		},
 	}
 

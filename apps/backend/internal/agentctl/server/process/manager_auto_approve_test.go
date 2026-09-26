@@ -2,6 +2,7 @@ package process
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ func autoApproveManager(t *testing.T) *Manager {
 func TestAutoApprovePermissionSelectsAllowListedAfterReject(t *testing.T) {
 	m := autoApproveManager(t)
 
-	response, ok := m.autoApprovePermission(&adapter.PermissionRequest{
+	decision, ok := m.autoApprovePermission(&adapter.PermissionRequest{
 		Options: []adapter.PermissionOption{
 			{OptionID: "reject", Kind: streams.PermissionOptionKindRejectOnce},
 			{OptionID: "allow-once", Kind: streams.PermissionOptionKindAllowOnce},
@@ -37,8 +38,11 @@ func TestAutoApprovePermissionSelectsAllowListedAfterReject(t *testing.T) {
 	if !ok {
 		t.Fatalf("ok = false, want true when an allow option is offered")
 	}
-	if response == nil || response.Cancelled || response.OptionID != "allow-once" {
-		t.Fatalf("response = %+v, want option allow-once", response)
+	if decision.response == nil || decision.response.Cancelled || decision.response.OptionID != "allow-once" {
+		t.Fatalf("response = %+v, want option allow-once", decision.response)
+	}
+	if decision.option.Kind != streams.PermissionOptionKindAllowOnce {
+		t.Fatalf("selected kind = %q, want allow_once", decision.option.Kind)
 	}
 }
 
@@ -46,7 +50,7 @@ func TestAutoApprovePermissionSelectsAllowListedAfterReject(t *testing.T) {
 func TestAutoApprovePermissionFallsThroughWithoutAllowOption(t *testing.T) {
 	m := autoApproveManager(t)
 
-	response, ok := m.autoApprovePermission(&adapter.PermissionRequest{
+	decision, ok := m.autoApprovePermission(&adapter.PermissionRequest{
 		Options: []adapter.PermissionOption{
 			{OptionID: "reject-once", Kind: streams.PermissionOptionKindRejectOnce},
 			{OptionID: "reject-always", Kind: streams.PermissionOptionKindRejectAlways},
@@ -54,10 +58,10 @@ func TestAutoApprovePermissionFallsThroughWithoutAllowOption(t *testing.T) {
 	})
 
 	if ok {
-		t.Fatalf("ok = true with response %+v, want fall-through to the interactive prompt", response)
+		t.Fatalf("ok = true with decision %+v, want fall-through to the interactive prompt", decision)
 	}
-	if response != nil {
-		t.Fatalf("response = %+v, want nil so the caller keeps the pending flow", response)
+	if decision.response != nil {
+		t.Fatalf("response = %+v, want nil so the caller keeps the pending flow", decision.response)
 	}
 }
 
@@ -65,13 +69,13 @@ func TestAutoApprovePermissionFallsThroughWithoutAllowOption(t *testing.T) {
 func TestAutoApprovePermissionFallsThroughWithoutOptions(t *testing.T) {
 	m := autoApproveManager(t)
 
-	response, ok := m.autoApprovePermission(&adapter.PermissionRequest{})
+	decision, ok := m.autoApprovePermission(&adapter.PermissionRequest{})
 
 	if ok {
-		t.Fatalf("ok = true with response %+v, want fall-through rather than a cancellation", response)
+		t.Fatalf("ok = true with decision %+v, want fall-through rather than a cancellation", decision)
 	}
-	if response != nil {
-		t.Fatalf("response = %+v, want nil rather than a cancellation", response)
+	if decision.response != nil {
+		t.Fatalf("response = %+v, want nil rather than a cancellation", decision.response)
 	}
 }
 
@@ -81,13 +85,13 @@ func TestAutoApprovePermissionNormalizesOptionKind(t *testing.T) {
 	for _, kind := range []string{"Allow_Once", " allow_once ", "ALLOW_ALWAYS"} {
 		t.Run(kind, func(t *testing.T) {
 			m := autoApproveManager(t)
-			response, ok := m.autoApprovePermission(&adapter.PermissionRequest{
+			decision, ok := m.autoApprovePermission(&adapter.PermissionRequest{
 				Options: []adapter.PermissionOption{
 					{OptionID: "allow", Kind: streams.PermissionOptionKind(kind)},
 				},
 			})
-			if !ok || response == nil || response.OptionID != "allow" {
-				t.Fatalf("kind %q: ok = %v, response = %+v, want the allow option selected", kind, ok, response)
+			if !ok || decision.response == nil || decision.response.OptionID != "allow" {
+				t.Fatalf("kind %q: ok = %v, response = %+v, want the allow option selected", kind, ok, decision.response)
 			}
 		})
 	}
@@ -184,6 +188,20 @@ func TestAutoApprovedPermissionIsRecorded(t *testing.T) {
 		if event.AutoApprovedOptionID != "allow-once" {
 			t.Fatalf("auto approved option = %q, want allow-once", event.AutoApprovedOptionID)
 		}
+		encoded, err := json.Marshal(event)
+		if err != nil {
+			t.Fatalf("marshal auto-approved permission event: %v", err)
+		}
+		var eventData map[string]any
+		if err := json.Unmarshal(encoded, &eventData); err != nil {
+			t.Fatalf("decode auto-approved permission event: %v", err)
+		}
+		if got := eventData["auto_approved_option_kind"]; got != "allow_once" {
+			t.Fatalf("auto approved option kind = %v, want allow_once", got)
+		}
+		if got := eventData["auto_approval_source"]; got != "auto_approve" {
+			t.Fatalf("auto approval source = %v, want auto_approve", got)
+		}
 		if event.PendingID != "pending-1" {
 			t.Fatalf("pending id = %q, want pending-1", event.PendingID)
 		}
@@ -200,5 +218,30 @@ func TestAutoApprovedPermissionIsRecorded(t *testing.T) {
 	m.permissionMu.Unlock()
 	if pendingCount != 0 {
 		t.Fatalf("pending permissions = %d, want 0 for an answered request", pendingCount)
+	}
+}
+
+func TestAutoApproveDoesNotAnswerWhenDecisionRecordCannotBeQueued(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m := autoApproveManager(t)
+	for i := 0; i < cap(m.updatesCh); i++ {
+		m.updatesCh <- adapter.AgentEvent{Type: adapter.EventTypeError}
+	}
+	cancel()
+
+	response, err := m.handlePermissionRequest(ctx, &adapter.PermissionRequest{
+		SessionID:  "session-1",
+		ToolCallID: "tool-1",
+		PendingID:  "pending-full-channel",
+		Options: []adapter.PermissionOption{
+			{OptionID: "allow-once", Kind: streams.PermissionOptionKindAllowOnce},
+		},
+	})
+	if err != nil {
+		t.Fatalf("handlePermissionRequest returned error: %v", err)
+	}
+	if response == nil || !response.Cancelled || response.OptionID != "" {
+		t.Fatalf("response = %+v, want cancellation without an approval when the decision record cannot be queued", response)
 	}
 }

@@ -3,87 +3,70 @@ package acp
 import (
 	"context"
 	"testing"
-	"time"
+
+	acpsdk "github.com/coder/acp-go-sdk"
 )
 
-// AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.1
-func TestAwaitModeSettleConfirmsReportedMode(t *testing.T) {
-	a := &Adapter{}
-	a.noteCurrentMode("bypassPermissions")
+func TestAwaitModeSettleConfirmsReportBeforeRPCReturns(t *testing.T) {
+	a := &Adapter{sessionID: "session-1"}
+	baseline := a.currentModeSnapshot().generation
 
-	result := a.awaitModeSettle(context.Background(), "bypassPermissions")
+	// ACP can deliver current_mode_update before session/set_mode responds.
+	a.noteCurrentMode("session-1", "default")
+	result := a.awaitModeSettle(context.Background(), "session-1", "bypassPermissions", baseline)
 
-	if !result.Applied() {
-		t.Fatalf("result = %+v, want an applied mode", result)
+	if !result.Confirmed || result.Effective != "default" {
+		t.Fatalf("result = %+v, want the early clamp report", result)
 	}
 }
 
-// AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.2, .5
-// A provider that clamps the request reports a different mode. That is
-// confirmed information, and it must not read as a clean apply.
-func TestAwaitModeSettleReportsClamp(t *testing.T) {
-	a := &Adapter{}
-	a.noteCurrentMode("default")
+func TestAwaitModeSettleDoesNotConfirmPreRequestMode(t *testing.T) {
+	a := &Adapter{sessionID: "session-1"}
+	a.noteCurrentMode("session-1", "bypassPermissions")
+	baseline := a.currentModeSnapshot().generation
 
-	go func() {
-		time.Sleep(10 * time.Millisecond)
-		a.noteCurrentMode("acceptEdits")
-	}()
+	result := a.awaitModeSettle(context.Background(), "session-1", "bypassPermissions", baseline)
 
-	result := a.awaitModeSettle(context.Background(), "bypassPermissions")
-
-	if result.Applied() {
-		t.Fatalf("result = %+v, want a non-applied result", result)
-	}
-	if !result.Confirmed {
-		t.Fatalf("result = %+v, want the clamp confirmed", result)
-	}
-	if result.Effective != "acceptEdits" {
-		t.Fatalf("effective = %q, want the mode the agent reported", result.Effective)
+	if result.Confirmed || result.Effective != "" {
+		t.Fatalf("result = %+v, want an unconfirmed result without an effective mode", result)
 	}
 }
 
-// An agent that never reports a mode yields an unconfirmed result rather than
-// an assumed success.
-func TestAwaitModeSettleReportsUnconfirmedOnSilence(t *testing.T) {
-	a := &Adapter{}
-
-	start := time.Now()
-	result := a.awaitModeSettle(context.Background(), "bypassPermissions")
-	elapsed := time.Since(start)
-
-	if result.Confirmed {
-		t.Fatalf("result = %+v, want an unconfirmed result", result)
+func TestAwaitModeSettleRejectsAStaleSessionReport(t *testing.T) {
+	a := &Adapter{sessionID: "session-2"}
+	a.noteCurrentMode("session-2", "default")
+	baseline := a.currentModeSnapshot()
+	event := a.convertNotification(acpsdk.SessionNotification{
+		SessionId: "session-1",
+		Update: acpsdk.SessionUpdate{
+			CurrentModeUpdate: &acpsdk.SessionCurrentModeUpdate{
+				SessionUpdate: "current_mode_update",
+				CurrentModeId: acpsdk.SessionModeId("bypassPermissions"),
+			},
+		},
+	})
+	if event != nil {
+		t.Fatalf("stale session mode event = %+v, want dropped", event)
 	}
-	if result.Applied() {
-		t.Fatalf("result = %+v, want Applied false", result)
+	after := a.currentModeSnapshot()
+	if after.sessionID != baseline.sessionID || after.mode != baseline.mode || after.generation != baseline.generation {
+		t.Fatalf("stale report changed mode state: before=%+v after=%+v", baseline, after)
 	}
-	if elapsed > 3*time.Second {
-		t.Fatalf("settle took %s; the window must stay bounded so launches are not delayed", elapsed)
+
+	result := a.awaitModeSettle(context.Background(), "session-2", "bypassPermissions", after.generation)
+
+	if result.Confirmed || result.Effective != "" {
+		t.Fatalf("result = %+v, want stale report ignored", result)
 	}
 }
 
-// A cancelled context must not hold the launch open for the whole window.
 func TestAwaitModeSettleRespectsContextCancellation(t *testing.T) {
-	a := &Adapter{}
+	a := &Adapter{sessionID: "session-1"}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	start := time.Now()
-	result := a.awaitModeSettle(ctx, "bypassPermissions")
-
-	if result.Confirmed {
-		t.Fatalf("result = %+v, want an unconfirmed result", result)
-	}
-	if elapsed := time.Since(start); elapsed > modeSettleWindow {
-		t.Fatalf("settle ignored cancellation and took %s", elapsed)
-	}
-}
-
-// The settle window bounds launch latency; assert the bound rather than
-// trusting a comment.
-func TestModeSettleWindowIsBounded(t *testing.T) {
-	if modeSettleWindow <= 0 || modeSettleWindow > 2*time.Second {
-		t.Fatalf("modeSettleWindow = %s, want a small positive bound", modeSettleWindow)
+	result := a.awaitModeSettle(ctx, "session-1", "bypassPermissions", 0)
+	if result.Confirmed || result.Effective != "" {
+		t.Fatalf("result = %+v, want canceled request to stay unconfirmed", result)
 	}
 }

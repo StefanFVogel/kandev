@@ -1,5 +1,5 @@
 ---
-status: current
+status: draft
 system: agents
 requirements:
   - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-001
@@ -35,7 +35,11 @@ to the provider rather than to an unverifiable Kandev claim.
 | `REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-005` | [End-to-end evidence](#end-to-end-evidence) |
 | `REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-006` | [Workspace-seeded agent configuration](#workspace-seeded-agent-configuration) |
 
-## Confirmed current behavior
+## Baseline before PR #3886
+
+This table records the behavior that led to the original permission-control
+work. PR #3886 changes several rows; the remediation below describes the
+remaining integration contract.
 
 | Control | Where it is written | Where it is read |
 | --- | --- | --- |
@@ -102,6 +106,12 @@ append.
 
 ## Initial mode delivery
 
+The remediation of PR #3886 follows
+[ADR-2026-09-25-session-mode-configuration-boundary](../../../decisions/2026-09-25-session-mode-configuration-boundary.md).
+The start-mode artifact is a session-owned overlay, not an implicit request to
+transfer host agent configuration. The executor profile's portable bundle and
+authentication selections remain independent authorities.
+
 The reported symptom is that a permission mode reaches the agent's instruction
 layer without changing enforcement. That is consistent with what the launch path
 does: Kandev never configures the agent process with a mode. It creates the
@@ -162,17 +172,31 @@ directory through `RuntimeConfig.SessionConfig.SessionDirTemplate` /
 so today a Claude ACP launch on a standalone executor reads the developer's own
 `~/.claude`.
 
-The design extends the existing per-instance session directory
-(`CommandBuilder.ExpandSessionDir`, already rooted at
-`<kandev home>/agent-sessions/<instance id>/<dotdir>`) to host executors and
-exports its path to the agent process through the agent-declared configuration
-environment variable. Kandev writes only the keys it owns into that directory's
-settings file and leaves any other content alone.
+The lifecycle manager resolves the launch mode and creates one overlay from
+empty settings or the settings bundle that the executor profile selected.
+It changes only the declared mode key. A host executor may use the existing
+per-instance directory (`CommandBuilder.ExpandSessionDir`) only when changing
+the agent's configuration-directory environment preserves the selected
+authentication and the caller's explicit directory setting. It must not link
+the rest of the host agent directory as an implicit side effect. If the
+provider has no safe channel for that launch, the mode is unavailable at
+startup and the reason is session-visible.
 
-This has a second effect worth stating: it isolates a host-executor session from
-the developer's own agent settings, which is the current cause of a project or
-user permission list applying in a hand-started session and not in an
-MCP-created one.
+The executor that launches the agent installs the resolved overlay after its
+normal selected-bundle preparation and before the process starts. For Docker,
+the final file resides in the mounted session directory at the declared
+`SessionDirTarget`. For SSH, the uploader installs it in the remote session
+home that is passed as the agent's configuration directory. For Kubernetes,
+the pod transfer installs it in the resolved session home used by that launch;
+it must not assume `/root/.claude` when the pod reads another home. Warm
+resumes reuse the session-owned file and do not recopy unselected host data.
+The executor reports the actual agent-visible path and installation result;
+`initialModeOutcome.Delivered` becomes true only after that result succeeds.
+
+The settings materializer accepts an object root only. A JSON `null`, scalar,
+or array becomes a new object or a structured preparation error before nested
+assignment; it never panics. The overlay is written atomically with private
+permissions and does not mutate a selected source bundle.
 
 ### Escalation trust and process identity
 
@@ -239,11 +263,14 @@ workspace.
 ### Confirmation
 
 `acp.Adapter.SetMode` stops synthesizing the session-mode event from the
-requested value. After `conn.SetSessionMode` returns it reads the adapter's
-current-mode state, which the adapter already maintains from the agent's
-`current_mode_update` notifications and the `session/new` mode state
-(`emitInitialModeState`). The emitted `session_mode` event carries the agent's
-current mode.
+requested value. It captures a mode-observation sequence before sending
+`session/set_mode` and serializes mode mutations per adapter session. A report
+received after that capture belongs to the in-flight request even if it arrives
+before the RPC response. A pre-request cached mode cannot confirm a new
+request. The emitted `session_mode` event carries the agent's reported current
+mode; if none is observed, it keeps the last reported effective value and
+marks the request unconfirmed. A report from another ACP session does not
+enter this adapter session's observation sequence.
 
 Because a provider may publish `current_mode_update` asynchronously after
 answering `session/set_mode`, the adapter waits for a bounded settle window for
@@ -295,13 +322,28 @@ a cancellation with an explicit Warn, because a missing handler is a Kandev
 wiring failure rather than a permission decision; it is unreachable in a wired
 launch and must not silently approve.
 
-Audit: `autoApprovePermission` already logs the selected option. It additionally
-records a permission transcript entry through the existing permission-message
-path with the option ID, option kind, and an `auto_approve` source, so an
-auto-approved call is visible next to human-approved ones. The delivery-timeout
-auto-cancel in `sendPermissionNotification` records a distinct `timed_out`
-result rather than reusing the cancellation shape used for user-driven
-cancellation.
+Audit: `autoApprovePermission` already logs the selected option. Its decision
+record crosses the agentctl-to-orchestrator boundary with the selected option
+ID, option kind, and `auto_approve` source. The orchestrator persists these
+fields in the permission message data before it marks the message approved;
+updating only the status is insufficient. Delivery of the decision record must
+be reliable or its failure must be visible, because a best-effort notification
+can drop the only audit evidence. Reload and session replay read the same
+durable fields. The delivery-timeout auto-cancel in
+`sendPermissionNotification` records a distinct `timed_out` result.
+
+## Mode mismatch presentation
+
+`mode-selector.tsx` shares the current mode, requested mode, and selection
+handler between desktop and phone. Desktop keeps the compact dropdown and
+focus/hover disclosure. A phone or coarse pointer opens the existing
+`MobilePickerSheet` pattern from a visible selector. When the modes differ,
+the sheet shows the requested and effective mode before its choices. The
+warning stays visible until the reported mode matches or a later request
+supersedes it. This is a short temporary choice, so the picker owns its one
+scroll region and returns focus to the trigger on dismissal. Touch rows are
+at least 44 CSS pixels. Localized labels and an accessible warning name do
+not depend on the warning icon alone.
 
 ## Configure contract cleanup
 
@@ -347,9 +389,10 @@ or on network access. Backend integration coverage asserts the same contract at
 - An agent with no declared initial-mode channel keeps the post-creation switch.
   Its mode is recorded as best-effort, so the absence of a channel is visible
   rather than presented as delivery.
-- A per-session configuration directory that cannot be created fails the launch
-  for an agent using the `settings` shape, because silently falling back to the
-  user's shared configuration is the behavior this design removes.
+- A per-session settings overlay that cannot be created or installed is never
+  reported as delivered. The session records the preparation reason and does
+  not silently fall back to unselected host configuration. A launch whose
+  safety depends on the requested start mode fails before its first turn.
 - A requested mode the runtime disables for the process identity is reported as
   unavailable. The session still starts, in the runtime's effective mode, with
   that mode visible.
@@ -370,3 +413,10 @@ or on network access. Backend integration coverage asserts the same contract at
   an `outcome` of `selected` or `fell_back_to_prompt`.
 - The existing permission transcript gains the auto-approval and timeout
   results, so a permission answered without a human is auditable.
+
+## Implementation plans
+
+- [Original permission-control plan](../../../plans/agent-permission-control-integrity/plan.md)
+  records the initial implementation.
+- [PR #3886 remediation plan](../../../plans/agent-permission-pr3886-remediation/plan.md)
+  owns the start-mode transfer, ACP timing, audit, and phone corrections.

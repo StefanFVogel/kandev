@@ -271,6 +271,11 @@ type Adapter struct {
 	// creation/load or a current_mode_update. SetMode compares against it
 	// rather than echoing the requested mode.
 	currentModeID string
+	// modeSessionID and modeObservationGeneration identify reports from the
+	// active provider session. SetMode captures the generation before its RPC
+	// and accepts only a later report from that session.
+	modeSessionID             string
+	modeObservationGeneration uint64
 	// modeObserved closes on each mode report so a waiter can settle.
 	modeObserved chan struct{}
 
@@ -290,6 +295,7 @@ type Adapter struct {
 	sessionTransitionMu sync.Mutex
 	sessionCleanupDone  chan struct{}
 	sessionCleanupWg    sync.WaitGroup
+	modeChangeMu        sync.Mutex
 	configChangeMu      sync.Mutex
 	configGeneration    uint64
 	contextSamples      map[string]contextWindowSample
