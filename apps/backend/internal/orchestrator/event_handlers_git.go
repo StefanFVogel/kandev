@@ -802,16 +802,16 @@ func (s *Service) handlePermissionRequest(ctx context.Context, data watcher.Perm
 		return
 	}
 
-	// An auto-approved request is a record of a decision Kandev already made,
-	// not a prompt. It still becomes a transcript message so the decision is
-	// auditable, but the session is not waiting on anyone and an automation run
-	// must not be failed for a prompt that was never raised.
-	autoApproved := data.AutoApprovedOptionID != ""
+	// New agentctl instances leave the request pending until the backend has
+	// claimed its durable decision. Older instances can still send a record of
+	// an approval they already delivered.
+	autoCandidate := data.AutoApprovedOptionID != "" && data.AutoApprovalPending
+	autoApproved := data.AutoApprovedOptionID != "" && !autoCandidate
 	var decision *models.PermissionDecision
 	if autoApproved {
 		decision = permissionDecisionFromEvent(data)
 	}
-	if !autoApproved {
+	if !autoApproved && !autoCandidate {
 		s.setSessionWaitingForInput(ctx, data.TaskID, data.TaskSessionID)
 	}
 
@@ -836,7 +836,7 @@ func (s *Service) handlePermissionRequest(ctx context.Context, data watcher.Perm
 				data.ActionDetails,
 				decision,
 			)
-			if err == nil || !autoApproved || attempts == automaticPermissionMessageWriteMaxAttempts {
+			if err == nil || (!autoApproved && !autoCandidate) || attempts == automaticPermissionMessageWriteMaxAttempts {
 				break
 			}
 			timer := time.NewTimer(100 * time.Millisecond)
@@ -865,11 +865,20 @@ func (s *Service) handlePermissionRequest(ctx context.Context, data watcher.Perm
 				)
 			}
 			s.logger.Error(message, fields...)
+			if autoCandidate {
+				s.setSessionWaitingForInput(ctx, data.TaskID, data.TaskSessionID)
+				return
+			}
 		} else {
 			s.logger.Debug("created permission request message",
 				zap.String("task_id", data.TaskID),
 				zap.String("pending_id", data.PendingID))
 		}
+	} else if autoCandidate {
+		s.logger.Error("cannot persist automatic permission candidate without a message creator",
+			zap.String("task_id", data.TaskID), zap.String("pending_id", data.PendingID))
+		s.setSessionWaitingForInput(ctx, data.TaskID, data.TaskSessionID)
+		return
 	} else if decision != nil {
 		s.logger.Error("cannot persist automatic permission decision without a message creator",
 			zap.String("task_id", data.TaskID),
@@ -881,6 +890,19 @@ func (s *Service) handlePermissionRequest(ctx context.Context, data watcher.Perm
 			zap.String("source", decision.Source))
 	}
 
+	if autoCandidate {
+		_, err := s.ResolveAgentPermission(ctx, ResolveAgentPermissionRequest{
+			TaskID: data.TaskID, SessionID: data.TaskSessionID,
+			RequestID: data.RequestID, PendingID: data.PendingID,
+			OptionID: data.AutoApprovedOptionID, Source: models.PermissionSourceAutoApprove,
+		})
+		if err != nil {
+			s.logger.Error("failed to resolve automatic permission decision",
+				zap.String("task_id", data.TaskID), zap.String("pending_id", data.PendingID), zap.Error(err))
+			s.setSessionWaitingForInput(ctx, data.TaskID, data.TaskSessionID)
+		}
+		return
+	}
 	if autoApproved {
 		return
 	}

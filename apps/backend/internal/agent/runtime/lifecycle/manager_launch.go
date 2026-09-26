@@ -990,7 +990,12 @@ func (m *Manager) launchBuildExecutorRequest(ctx context.Context, executionID st
 	// Give the agent process the mode it should start in. The post-creation
 	// session/set_mode below stays as the path for later switches and for
 	// agents without a declared channel.
-	requestedMode := m.launchSessionMode(ctx, reqWithWorktree, profileInfo)
+	requestedMode := ""
+	if reqWithWorktree.ACPSessionID == "" {
+		// A resumed ACP session restores its mode through LoadSession. It has
+		// no new first turn that needs an executor startup setting.
+		requestedMode = m.launchSessionMode(ctx, reqWithWorktree, profileInfo)
+	}
 	var initialMode initialModeOutcome
 	// A resumed session keeps the configuration its executor already carries,
 	// and runs no environment preparation to report against.

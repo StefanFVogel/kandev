@@ -53,6 +53,10 @@ func (a *Adapter) noteCurrentMode(sessionID, mode string) bool {
 	}
 	a.currentModeID = mode
 	a.modeSessionID = sessionID
+	if !a.modeChangeActive {
+		// An idle report closes the uncertainty left by an earlier timeout.
+		a.modeOutcomeUncertain = false
+	}
 	a.modeObservationGeneration++
 	if a.modeObserved != nil {
 		close(a.modeObserved)
@@ -60,6 +64,22 @@ func (a *Adapter) noteCurrentMode(sessionID, mode string) bool {
 	a.modeObserved = make(chan struct{})
 	a.mu.Unlock()
 	return true
+}
+
+func (a *Adapter) beginModeChange() (generation uint64, uncertain bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.modeChangeActive = true
+	return a.modeObservationGeneration, a.modeOutcomeUncertain
+}
+
+func (a *Adapter) endModeChange(unconfirmed bool) {
+	a.mu.Lock()
+	if unconfirmed {
+		a.modeOutcomeUncertain = true
+	}
+	a.modeChangeActive = false
+	a.mu.Unlock()
 }
 
 type currentModeObservation struct {

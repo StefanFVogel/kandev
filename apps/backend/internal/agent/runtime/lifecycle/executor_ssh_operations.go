@@ -1000,6 +1000,14 @@ func sshRemoteAgentEnv(req *ExecutorCreateRequest) map[string]string {
 			env[key] = val
 		}
 	}
+	if req.InitialMode != nil && req.InitialMode.Delivered && req.AgentConfig != nil {
+		if runtime := req.AgentConfig.Runtime(); runtime != nil {
+			key := runtime.InitialMode.ConfigDirEnvVar
+			if key != "" && req.Env[key] == req.InitialMode.ConfigDir {
+				env[key] = req.InitialMode.ConfigDir
+			}
+		}
+	}
 	for key, value := range managedGitHubBrokerEnv(req.Env) {
 		env[key] = value
 	}

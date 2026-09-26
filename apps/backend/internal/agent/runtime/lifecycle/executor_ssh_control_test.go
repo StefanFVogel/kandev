@@ -280,6 +280,28 @@ func TestBuildSSHCreateInstanceRequestStripsForkPRCredentials(t *testing.T) {
 	}
 }
 
+func TestBuildSSHCreateInstanceRequestForwardsDeliveredModeConfigDir(t *testing.T) {
+	configDir := "/home/agent/.kandev/sessions/instance-1/.claude"
+	req := &ExecutorCreateRequest{
+		InstanceID: "instance-1",
+		InitialMode: &AgentInitialModeRequest{
+			Mode: "bypassPermissions", Delivered: true, ConfigDir: configDir,
+		},
+		AgentConfig: agents.NewClaudeACP(),
+		Env:         map[string]string{"CLAUDE_CONFIG_DIR": configDir},
+	}
+	got := buildSSHCreateInstanceRequest(req, "/workspace", "/agentctl")
+	if got.Env["CLAUDE_CONFIG_DIR"] != configDir {
+		t.Fatalf("agent config dir = %q, want %q", got.Env["CLAUDE_CONFIG_DIR"], configDir)
+	}
+
+	req.InitialMode.Delivered = false
+	got = buildSSHCreateInstanceRequest(req, "/workspace", "/agentctl")
+	if got.Env["CLAUDE_CONFIG_DIR"] != "" {
+		t.Fatalf("undelivered mode config dir escaped into agent environment: %q", got.Env["CLAUDE_CONFIG_DIR"])
+	}
+}
+
 func TestSSHRemoteAgentEnvForwardsOnlyScopedCredentials(t *testing.T) {
 	t.Run("nil request and nil env produce nil", func(t *testing.T) {
 		if got := sshRemoteAgentEnv(nil); got != nil {

@@ -260,6 +260,9 @@ type AgentEvent struct {
 	// nobody needs to answer it, and the consumer must not treat the session
 	// as waiting for input. Empty for a request that still needs an answer.
 	AutoApprovedOptionID string `json:"auto_approved_option_id,omitempty"`
+	// AutoApprovalPending means the selected option is only a proposal. The
+	// backend must persist it before resolving the live request.
+	AutoApprovalPending bool `json:"auto_approval_pending,omitempty"`
 
 	// AutoApprovedOptionKind preserves the provider's selected allow semantics
 	// alongside the option ID for durable permission history.

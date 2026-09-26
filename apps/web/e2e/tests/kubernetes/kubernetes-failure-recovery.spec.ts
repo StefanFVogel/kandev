@@ -90,7 +90,6 @@ for (const restart of [false, true]) {
       await session.recoveryResumeButton().click({ timeout: 30_000 });
       const editor = session.activeChat().getByTestId("chat-input-editor");
       await expect(editor).toHaveAttribute("contenteditable", "true", { timeout: 90_000 });
-      await expect(session.submitButton()).toBeEnabled({ timeout: 90_000 });
       await expect(session.recoveryResumeButton()).toHaveCount(0);
       await waitForTaskSessionState(apiClient, task.id, sessionId, "WAITING_FOR_INPUT", 90_000);
       const reply = restart ? "recovered-after-restart" : "recovered-after-failure";

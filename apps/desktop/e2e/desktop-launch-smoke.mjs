@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
+import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
@@ -349,6 +350,17 @@ async function readInstances(instancesDir) {
   return instances;
 }
 
+export async function writeInstanceRecord(instanceDir, record) {
+  const target = join(instanceDir, "instance.json");
+  const temporary = join(instanceDir, `.instance-${randomUUID()}.json`);
+  try {
+    await writeFile(temporary, JSON.stringify(record, null, 2));
+    await rename(temporary, target);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
 function assertDistinctTemporaryInstances(first, second) {
   assert.ok(first.home && second.home, "temporary backend must receive a temporary home");
   assert.notEqual(first.home, second.home, "temporary windows must own different homes");
@@ -495,8 +507,7 @@ async function runFakeRuntime(stateDir, args) {
     readyRequested: false,
     rootRequested: false,
   };
-  const saveRecord = () =>
-    writeFile(join(instanceDir, "instance.json"), JSON.stringify(record, null, 2));
+  const saveRecord = () => writeInstanceRecord(instanceDir, record);
   await saveRecord();
   await writeFile(join(instanceDir, "launched"), JSON.stringify({ args, port }));
 

@@ -102,7 +102,9 @@ function buildModeState(
   staticModes: ModeOption[],
 ): ModeSelectorState | undefined {
   const availableModes = liveModes?.length ? liveModes : staticModes;
-  if (!currentModeId) return undefined;
+  if (!currentModeId) {
+    return availableModes.length > 0 ? { currentModeId: "", availableModes } : undefined;
+  }
   if (availableModes.length === 0) {
     if (currentModeId === "default") return undefined;
     return {
@@ -148,7 +150,7 @@ function useModeSelectorState(sessionId: string | null) {
     () =>
       withRequestedMode(
         buildModeState(
-          liveModeState?.currentModeId || snapshotMode || profileMode,
+          liveModeState ? liveModeState.currentModeId : snapshotMode || profileMode,
           liveModeState?.availableModes,
           staticModes,
         ),
@@ -161,9 +163,11 @@ function useModeSelectorState(sessionId: string | null) {
 function ModeMismatchWarning({
   requestedName,
   displayName,
+  unconfirmed,
 }: {
   requestedName: string;
   displayName: string;
+  unconfirmed: boolean;
 }) {
   const { t } = useTranslation();
   return (
@@ -174,7 +178,9 @@ function ModeMismatchWarning({
     >
       <IconAlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" aria-hidden />
       <span>
-        {t("task:sessionModeNotApplied", { requested: requestedName, effective: displayName })}
+        {unconfirmed
+          ? t("task:sessionModeUnconfirmed", { requested: requestedName })
+          : t("task:sessionModeNotApplied", { requested: requestedName, effective: displayName })}
       </span>
     </div>
   );
@@ -283,7 +289,11 @@ function MobileModeSelector({
         }}
         fixedContent={
           requestedName ? (
-            <ModeMismatchWarning requestedName={requestedName} displayName={displayName} />
+            <ModeMismatchWarning
+              requestedName={requestedName}
+              displayName={displayName}
+              unconfirmed={!modeState.currentModeId}
+            />
           ) : undefined
         }
         headerAction={
@@ -404,7 +414,7 @@ export const ModeSelector = memo(function ModeSelector({
   }
 
   const currentMode = modeState.availableModes.find((m) => m.id === modeState.currentModeId);
-  const displayName = currentMode?.name || modeState.currentModeId || t("common:mode");
+  const displayName = currentMode?.name || modeState.currentModeId || t("common:unknown");
   // Set only when the agent did not end up in the requested mode. Showing the
   // effective mode alone would be truthful but silent about the mismatch.
   const requestedName = modeState.requestedModeId
@@ -424,6 +434,13 @@ export const ModeSelector = memo(function ModeSelector({
     );
   }
 
+  let tooltipLabel = t("task:agentPermissionMode");
+  if (requestedName) {
+    tooltipLabel = modeState.currentModeId
+      ? t("task:sessionModeNotApplied", { requested: requestedName, effective: displayName })
+      : t("task:sessionModeUnconfirmed", { requested: requestedName });
+  }
+
   return (
     <DropdownMenu open={dropdownOpen} onOpenChange={handleDropdownOpenChange}>
       <Tooltip open={tooltipOpen} onOpenChange={handleTooltipOpenChange}>
@@ -436,11 +453,7 @@ export const ModeSelector = memo(function ModeSelector({
             />
           </DropdownMenuTrigger>
         </TooltipTrigger>
-        <TooltipContent side="top">
-          {requestedName
-            ? t("task:sessionModeNotApplied", { requested: requestedName, effective: displayName })
-            : t("task:agentPermissionMode")}
-        </TooltipContent>
+        <TooltipContent side="top">{tooltipLabel}</TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="start" side="top" className="min-w-[280px]">
         <DropdownMenuLabel>{t("task:availableModes")}</DropdownMenuLabel>

@@ -31,6 +31,7 @@ const (
 	reasoningEffortLow  = "low"
 	reasoningEffortMed  = "medium"
 	reasoningEffortHigh = "high"
+	mockDefaultMode     = "default"
 )
 
 // logOutput is the writer for log messages (stderr). Tests can override this.
@@ -54,6 +55,7 @@ type mockAgent struct {
 	promptCancelHolds map[acp.SessionId]chan struct{}
 	sessionMCPServers map[acp.SessionId]map[string]mcpServerDef
 	sessionConfig     map[acp.SessionId][]acp.SessionConfigOption
+	sessionModes      map[acp.SessionId]acp.SessionModeId
 	commandsEmitted   map[acp.SessionId]bool
 	nextSessionID     uint64
 	mu                sync.Mutex
@@ -91,6 +93,7 @@ func main() {
 		promptCancelHolds: make(map[acp.SessionId]chan struct{}),
 		sessionMCPServers: make(map[acp.SessionId]map[string]mcpServerDef),
 		sessionConfig:     make(map[acp.SessionId][]acp.SessionConfigOption),
+		sessionModes:      make(map[acp.SessionId]acp.SessionModeId),
 		commandsEmitted:   make(map[acp.SessionId]bool),
 	}
 	asc := acp.NewAgentSideConnection(ag, os.Stdout, os.Stdin)
@@ -148,6 +151,10 @@ func (a *mockAgent) NewSession(ctx context.Context, req acp.NewSessionRequest) (
 	a.nextSessionID++
 	sid := acp.SessionId(fmt.Sprintf("mock-session-%d-%d", os.Getpid(), a.nextSessionID))
 	a.sessions[sid] = true
+	if a.sessionModes == nil {
+		a.sessionModes = make(map[acp.SessionId]acp.SessionModeId)
+	}
+	a.sessionModes[sid] = mockDefaultMode
 	if a.sessionConfig == nil {
 		a.sessionConfig = make(map[acp.SessionId][]acp.SessionConfigOption)
 	}
@@ -168,7 +175,7 @@ func (a *mockAgent) NewSession(ctx context.Context, req acp.NewSessionRequest) (
 
 	return acp.NewSessionResponse{
 		SessionId:     sid,
-		Modes:         mockSessionModes(),
+		Modes:         mockSessionModes(mockDefaultMode),
 		ConfigOptions: cloneSessionConfigOptions(configOptions),
 	}, nil
 }
@@ -183,13 +190,13 @@ func (a *mockAgent) Logout(_ context.Context, _ acp.LogoutRequest) (acp.LogoutRe
 // ACP session responses. The "default" mode is current; "plan-mock" is an
 // alternative used by tests that need to verify a non-default profile mode
 // propagates from the agent profile through to a new task session.
-func mockSessionModes() *acp.SessionModeState {
+func mockSessionModes(current acp.SessionModeId) *acp.SessionModeState {
 	defaultDesc := "Default mock mode"
 	planDesc := "Plan-style mock mode for testing"
 	return &acp.SessionModeState{
-		CurrentModeId: "default",
+		CurrentModeId: current,
 		AvailableModes: []acp.SessionMode{
-			{Id: "default", Name: "Default", Description: &defaultDesc},
+			{Id: mockDefaultMode, Name: "Default", Description: &defaultDesc},
 			{Id: "plan-mock", Name: "Plan Mock", Description: &planDesc},
 		},
 	}
@@ -242,11 +249,11 @@ func mockSessionConfigOptionsForModel(model string) []acp.SessionConfigOption {
 		}},
 		{Select: &acp.SessionConfigOptionSelect{
 			Category:     &modeCat,
-			CurrentValue: "default",
+			CurrentValue: mockDefaultMode,
 			Id:           "mode",
 			Name:         "Mode",
 			Options: acp.SessionConfigSelectOptions{Ungrouped: &acp.SessionConfigSelectOptionsUngrouped{
-				{Value: "default", Name: "Default", Description: ptr("Default mock mode")},
+				{Value: mockDefaultMode, Name: "Default", Description: ptr("Default mock mode")},
 				{Value: "plan-mock", Name: "Plan Mock", Description: ptr("Plan-style mock mode for testing")},
 			}},
 			Type: "select",
@@ -336,6 +343,10 @@ func (a *mockAgent) LoadSession(ctx context.Context, req acp.LoadSessionRequest)
 		configOptions = a.sessionConfig[req.SessionId]
 	}
 	responseConfigOptions := cloneSessionConfigOptions(configOptions)
+	currentMode := a.sessionModes[req.SessionId]
+	if currentMode == "" {
+		currentMode = mockDefaultMode
+	}
 	// Reset emit state so the resume re-advertises commands (matches real
 	// agents which re-emit on session/load).
 	delete(a.commandsEmitted, req.SessionId)
@@ -348,7 +359,7 @@ func (a *mockAgent) LoadSession(ctx context.Context, req acp.LoadSessionRequest)
 
 	return acp.LoadSessionResponse{
 		ConfigOptions: responseConfigOptions,
-		Modes:         mockSessionModes(),
+		Modes:         mockSessionModes(currentMode),
 	}, nil
 }
 
@@ -445,11 +456,22 @@ func (a *mockAgent) Authenticate(_ context.Context, _ acp.AuthenticateRequest) (
 	return acp.AuthenticateResponse{}, nil
 }
 
-// SetSessionMode accepts the mode and reports it back the way a conforming ACP
-// agent does. Kandev treats a mode as in force only once the agent has
-// published it, so an agent that answers silently leaves every mode change
-// unconfirmed and the session keeps showing the mode it started in.
+// SetSessionMode reports the accepted mode through the ACP update that real
+// agents use. The host must observe this report before it claims convergence.
 func (a *mockAgent) SetSessionMode(_ context.Context, req acp.SetSessionModeRequest) (acp.SetSessionModeResponse, error) {
+	if req.ModeId != mockDefaultMode && req.ModeId != "plan-mock" {
+		return acp.SetSessionModeResponse{}, fmt.Errorf("unknown mock mode %q", req.ModeId)
+	}
+	a.mu.Lock()
+	if !a.sessions[req.SessionId] {
+		a.mu.Unlock()
+		return acp.SetSessionModeResponse{}, fmt.Errorf("unknown mock session %q", req.SessionId)
+	}
+	if a.sessionModes == nil {
+		a.sessionModes = make(map[acp.SessionId]acp.SessionModeId)
+	}
+	a.sessionModes[req.SessionId] = req.ModeId
+	a.mu.Unlock()
 	go a.emitCurrentModeAfterDelay(req.SessionId, req.ModeId)
 	return acp.SetSessionModeResponse{}, nil
 }
@@ -552,6 +574,7 @@ func (a *mockAgent) CloseSession(_ context.Context, req acp.CloseSessionRequest)
 	a.mu.Lock()
 	delete(a.sessions, req.SessionId)
 	delete(a.sessionConfig, req.SessionId)
+	delete(a.sessionModes, req.SessionId)
 	delete(a.commandsEmitted, req.SessionId)
 	a.mu.Unlock()
 	_ = os.Remove(overloadedCounterPath(req.SessionId))

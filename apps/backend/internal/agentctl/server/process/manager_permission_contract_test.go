@@ -28,7 +28,9 @@ func TestPermissionContractBothDirections(t *testing.T) {
 		}
 	}
 
-	t.Run("unattended profile answers without a person", func(t *testing.T) {
+	t.Run("unattended profile proposes an approval for durable audit", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		m := &Manager{
 			cfg:                &config.InstanceConfig{AutoApprovePermissions: true},
 			logger:             newTestLogger(t),
@@ -36,12 +38,35 @@ func TestPermissionContractBothDirections(t *testing.T) {
 			pendingPermissions: make(map[string]*PendingPermission),
 		}
 
-		response, err := m.handlePermissionRequest(context.Background(), commandRequest())
-		if err != nil {
-			t.Fatalf("handlePermissionRequest returned error: %v", err)
+		resultCh := make(chan *adapter.PermissionResponse, 1)
+		go func() {
+			response, _ := m.handlePermissionRequest(ctx, commandRequest())
+			resultCh <- response
+		}()
+		select {
+		case event := <-m.updatesCh:
+			if event.Type != adapter.EventTypePermissionRequest || !event.AutoApprovalPending ||
+				event.AutoApprovedOptionID != "allow-once" {
+				t.Fatalf("event = %+v, want a pending automatic approval candidate", event)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for the automatic approval candidate")
 		}
-		if response == nil || response.Cancelled || response.OptionID != "allow-once" {
-			t.Fatalf("response = %+v, want the allow option with nobody answering", response)
+		select {
+		case response := <-resultCh:
+			t.Fatalf("provider received an answer before audit: %+v", response)
+		default:
+		}
+		if err := m.RespondToPermission("pending-1", "allow-once", false); err != nil {
+			t.Fatalf("RespondToPermission returned error: %v", err)
+		}
+		select {
+		case response := <-resultCh:
+			if response == nil || response.Cancelled || response.OptionID != "allow-once" {
+				t.Fatalf("response = %+v, want the audited allow option", response)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for the audited response")
 		}
 	})
 

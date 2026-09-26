@@ -198,3 +198,48 @@ func TestConcurrentSetModeRequestsCannotShareAReport(t *testing.T) {
 		t.Fatalf("second SetMode result = %+v, want no confirmation from the first request's report", second)
 	}
 }
+
+func TestLateTimedOutModeReportCannotConfirmNextRequest(t *testing.T) {
+	secondEntered := make(chan struct{})
+	adapter, agent, processed := newSetModeTestAdapter(t, func(_ context.Context, request acpsdk.SetSessionModeRequest) (acpsdk.SetSessionModeResponse, error) {
+		if string(request.ModeId) == "bypassPermissions" {
+			close(secondEntered)
+		}
+		return acpsdk.SetSessionModeResponse{}, nil
+	})
+
+	first, err := adapter.SetMode(context.Background(), "plan")
+	if err != nil || first.Confirmed {
+		t.Fatalf("first SetMode = %+v, %v; want timeout", first, err)
+	}
+	type outcome struct {
+		result streams.ModeResult
+		err    error
+	}
+	secondResult := make(chan outcome, 1)
+	go func() {
+		result, err := adapter.SetMode(context.Background(), "bypassPermissions")
+		secondResult <- outcome{result, err}
+	}()
+	select {
+	case <-secondEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("second request did not reach agent")
+	}
+	if err := reportModeFromAgent(agent, "plan"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-processed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("late first report was not processed")
+	}
+	select {
+	case got := <-secondResult:
+		if got.err != nil || got.result.Confirmed || got.result.Effective != "" {
+			t.Fatalf("second SetMode = %+v, %v; stale report confirmed it", got.result, got.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("second request did not settle")
+	}
+}

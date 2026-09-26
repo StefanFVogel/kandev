@@ -481,6 +481,7 @@ type PermissionRequestEventPayload struct {
 	// nonempty value makes this payload an audit record of an answered
 	// request rather than a prompt awaiting a person.
 	AutoApprovedOptionID   string                 `json:"auto_approved_option_id,omitempty"`
+	AutoApprovalPending    bool                   `json:"auto_approval_pending,omitempty"`
 	AutoApprovedOptionKind string                 `json:"auto_approved_option_kind,omitempty"`
 	AutoApprovalSource     string                 `json:"auto_approval_source,omitempty"`
 	ActionDetails          map[string]interface{} `json:"action_details,omitempty"`

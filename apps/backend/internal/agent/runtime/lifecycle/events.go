@@ -570,6 +570,7 @@ func (p *EventPublisher) PublishPermissionRequest(execution *AgentExecution, eve
 		ActionDetails: event.ActionDetails,
 
 		AutoApprovedOptionID:   event.AutoApprovedOptionID,
+		AutoApprovalPending:    event.AutoApprovalPending,
 		AutoApprovedOptionKind: event.AutoApprovedOptionKind,
 		AutoApprovalSource:     event.AutoApprovalSource,
 	}

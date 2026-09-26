@@ -278,6 +278,10 @@ type Adapter struct {
 	modeObservationGeneration uint64
 	// modeObserved closes on each mode report so a waiter can settle.
 	modeObserved chan struct{}
+	// A timed-out set_mode can report after the next request starts. ACP mode
+	// reports have no request ID, so that next request cannot claim the report.
+	modeOutcomeUncertain bool
+	modeChangeActive     bool
 
 	// Available config options from the most recent session creation/load.
 	// Used by emitSetModelEvent to include cached options in the convergence

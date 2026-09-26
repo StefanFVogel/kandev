@@ -190,6 +190,8 @@ home that is passed as the agent's configuration directory. For Kubernetes,
 the pod transfer installs it in the resolved session home used by that launch;
 it must not assume `/root/.claude` when the pod reads another home. Warm
 resumes reuse the session-owned file and do not recopy unselected host data.
+An ACP session resume restores its mode through `LoadSession`. It does not
+emit a new start-mode preparation warning for the existing session.
 The executor reports the actual agent-visible path and installation result;
 `initialModeOutcome.Delivered` becomes true only after that result succeeds.
 
@@ -268,16 +270,19 @@ requested value. It captures a mode-observation sequence before sending
 received after that capture belongs to the in-flight request even if it arrives
 before the RPC response. A pre-request cached mode cannot confirm a new
 request. The emitted `session_mode` event carries the agent's reported current
-mode; if none is observed, it keeps the last reported effective value and
-marks the request unconfirmed. A report from another ACP session does not
-enter this adapter session's observation sequence.
+mode. If none is observed, it leaves the effective mode empty and keeps the
+request separate. The UI shows Unknown with an unconfirmed warning. A report
+from another ACP session does not enter this adapter session's observation
+sequence.
 
 Because a provider may publish `current_mode_update` asynchronously after
 answering `session/set_mode`, the adapter waits for a bounded settle window for
 a `current_mode_update` naming either the requested mode or a different one
 before emitting. The window reuses the existing convergence pattern from
-`emitSetModelEvent`; on expiry the adapter emits the last known current mode and
-marks the result unconfirmed rather than assuming success.
+`emitSetModelEvent`; on expiry the adapter marks the result unconfirmed rather
+than assuming success. Because ACP reports have no request ID, a timed-out
+request makes the next request ambiguous. Its report cannot confirm that next
+request. An idle mode report clears the ambiguity.
 
 `SetMode` returns a typed result carrying `requested`, `effective`, and
 `confirmed`. `SessionManager.applyProfileSessionLayers` and
@@ -322,15 +327,16 @@ a cancellation with an explicit Warn, because a missing handler is a Kandev
 wiring failure rather than a permission decision; it is unreachable in a wired
 launch and must not silently approve.
 
-Audit: `autoApprovePermission` already logs the selected option. Its decision
-record crosses the agentctl-to-orchestrator boundary with the selected option
-ID, option kind, and `auto_approve` source. The orchestrator persists these
-fields in the permission message data before it marks the message approved;
-updating only the status is insufficient. Delivery of the decision record must
-be reliable or its failure must be visible, because a best-effort notification
-can drop the only audit evidence. Reload and session replay read the same
-durable fields. The delivery-timeout auto-cancel in
-`sendPermissionNotification` records a distinct `timed_out` result.
+Audit: `autoApprovePermission` selects the first allowed option but leaves the
+provider request pending. Its candidate event carries the option ID, kind,
+`auto_approve` source, and a pending marker. The orchestrator first writes a
+permission message. It then uses the existing permission-resolution path to
+claim the selected option in durable audit storage before it answers agentctl.
+If the write or claim fails, the request remains pending for a person. A
+legacy event without the pending marker remains a record of an approval that
+the old agentctl already delivered. Reload and session replay read the durable
+selection. The delivery-timeout auto-cancel in `sendPermissionNotification`
+records a distinct `timed_out` result.
 
 ## Mode mismatch presentation
 

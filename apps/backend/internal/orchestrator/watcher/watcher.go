@@ -92,6 +92,7 @@ type PermissionRequestData struct {
 	// AutoApprovedOptionID names the option agentctl already selected on the
 	// user's behalf. Nonempty means the request is recorded, not pending.
 	AutoApprovedOptionID   string `json:"auto_approved_option_id,omitempty"`
+	AutoApprovalPending    bool   `json:"auto_approval_pending,omitempty"`
 	AutoApprovedOptionKind string `json:"auto_approved_option_kind,omitempty"`
 	AutoApprovalSource     string `json:"auto_approval_source,omitempty"`
 }

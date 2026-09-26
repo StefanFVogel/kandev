@@ -116,6 +116,7 @@ afterEach(() => {
   mocks.storeSelections.length = 0;
   mocks.appState.responsive.isMobile = false;
   mocks.appState.responsive.isFinePointer = true;
+  mocks.appState.sessionMode.bySessionId[SESSION_ID].currentModeId = "full-access";
   mocks.appState.sessionMode.bySessionId[SESSION_ID].requestedModeId = undefined;
   mocks.setSessionMode.mockClear();
 });
@@ -195,6 +196,23 @@ describe("task selector trigger styling", () => {
 });
 
 describe("mobile mode selector", () => {
+  it("shows an unconfirmed mode without substituting the requested profile mode", () => {
+    mocks.appState.responsive.isMobile = true;
+    mocks.appState.sessionMode.bySessionId[SESSION_ID].currentModeId = "";
+    mocks.appState.sessionMode.bySessionId[SESSION_ID].requestedModeId = "read-only";
+    render(
+      <TooltipProvider>
+        <ModeSelector sessionId={SESSION_ID} />
+      </TooltipProvider>,
+    );
+
+    const trigger = screen.getByTestId(MODE_SELECTOR_TEST_ID);
+    expect(trigger.textContent).toContain("Unknown");
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog").textContent).toContain("Requested Read only");
+    expect(screen.getByRole("dialog").textContent).toContain("did not confirm");
+  });
+
   it("shows the mode mismatch and choices in the phone picker and returns focus on close", async () => {
     mocks.appState.responsive.isMobile = true;
     mocks.appState.sessionMode.bySessionId[SESSION_ID].requestedModeId = "read-only";

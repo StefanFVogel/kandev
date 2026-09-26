@@ -159,26 +159,27 @@ func TestHandlePermissionRequestPromptsWhenAutoApproveCannotApprove(t *testing.T
 // AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-003.4, .9
 // An auto-approved call must leave a record. Without one, a session where
 // Kandev answered is indistinguishable from one where the agent never asked.
-func TestAutoApprovedPermissionIsRecorded(t *testing.T) {
+func TestAutoApprovalWaitsForBackendResolution(t *testing.T) {
 	m := autoApproveManager(t)
-
-	response, err := m.handlePermissionRequest(context.Background(), &adapter.PermissionRequest{
-		SessionID:  "session-1",
-		ToolCallID: "tool-1",
-		PendingID:  "pending-1",
-		Title:      "Run git commit",
-		ActionType: string(streams.ActionTypeCommand),
-		Options: []adapter.PermissionOption{
-			{OptionID: "allow-once", Name: "Yes", Kind: streams.PermissionOptionKindAllowOnce},
-			{OptionID: "reject", Name: "No", Kind: streams.PermissionOptionKindRejectOnce},
-		},
-	})
-	if err != nil {
-		t.Fatalf("handlePermissionRequest returned error: %v", err)
+	type result struct {
+		response *adapter.PermissionResponse
+		err      error
 	}
-	if response == nil || response.OptionID != "allow-once" {
-		t.Fatalf("response = %+v, want the allow option", response)
-	}
+	resultCh := make(chan result, 1)
+	go func() {
+		response, err := m.handlePermissionRequest(context.Background(), &adapter.PermissionRequest{
+			SessionID:  "session-1",
+			ToolCallID: "tool-1",
+			PendingID:  "pending-1",
+			Title:      "Run git commit",
+			ActionType: string(streams.ActionTypeCommand),
+			Options: []adapter.PermissionOption{
+				{OptionID: "allow-once", Name: "Yes", Kind: streams.PermissionOptionKindAllowOnce},
+				{OptionID: "reject", Name: "No", Kind: streams.PermissionOptionKindRejectOnce},
+			},
+		})
+		resultCh <- result{response, err}
+	}()
 
 	select {
 	case event := <-m.updatesCh:
@@ -187,6 +188,9 @@ func TestAutoApprovedPermissionIsRecorded(t *testing.T) {
 		}
 		if event.AutoApprovedOptionID != "allow-once" {
 			t.Fatalf("auto approved option = %q, want allow-once", event.AutoApprovedOptionID)
+		}
+		if !event.AutoApprovalPending {
+			t.Fatal("automatic selection was incorrectly marked as already delivered")
 		}
 		encoded, err := json.Marshal(event)
 		if err != nil {
@@ -208,16 +212,30 @@ func TestAutoApprovedPermissionIsRecorded(t *testing.T) {
 		if len(event.PermissionOptions) != 2 {
 			t.Fatalf("options = %d, want the offered set preserved", len(event.PermissionOptions))
 		}
-	default:
-		t.Fatal("auto-approved permission produced no record on the updates channel")
+		select {
+		case got := <-resultCh:
+			t.Fatalf("provider was approved before backend resolution: %+v", got)
+		default:
+		}
+		if _, err := m.ResolvePermission(event.RequestID, event.PendingID, "allow-once"); err != nil {
+			t.Fatalf("ResolvePermission: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("automatic candidate produced no event")
 	}
-
-	// The request must not linger as pending: it is already answered.
+	select {
+	case got := <-resultCh:
+		if got.err != nil || got.response == nil || got.response.OptionID != "allow-once" {
+			t.Fatalf("resolved response = %+v, %v", got.response, got.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("provider did not receive backend resolution")
+	}
 	m.permissionMu.Lock()
 	pendingCount := len(m.pendingPermissions)
 	m.permissionMu.Unlock()
 	if pendingCount != 0 {
-		t.Fatalf("pending permissions = %d, want 0 for an answered request", pendingCount)
+		t.Fatalf("pending permissions = %d, want 0 after backend resolution", pendingCount)
 	}
 }
 

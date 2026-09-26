@@ -887,7 +887,9 @@ func (a *Adapter) SetMode(ctx context.Context, modeID string) (streams.ModeResul
 	if sessionID == "" {
 		return streams.ModeResult{Requested: modeID}, fmt.Errorf("no active session: call NewSession before SetMode")
 	}
-	baseline := a.currentModeSnapshot().generation
+	baseline, uncertain := a.beginModeChange()
+	unconfirmed := true
+	defer func() { a.endModeChange(unconfirmed) }()
 
 	_, err := conn.SetSessionMode(ctx, acp.SetSessionModeRequest{
 		SessionId: acp.SessionId(sessionID),
@@ -898,6 +900,13 @@ func (a *Adapter) SetMode(ctx context.Context, modeID string) (streams.ModeResul
 	}
 
 	result := a.awaitModeSettle(ctx, sessionID, modeID, baseline)
+	if uncertain {
+		// The first report can belong to the previous request, which timed out.
+		// ACP gives us no request ID with which to prove otherwise.
+		result = streams.ModeResult{Requested: modeID}
+	} else if result.Confirmed {
+		unconfirmed = false
+	}
 
 	a.mu.RLock()
 	if a.sessionID != sessionID {

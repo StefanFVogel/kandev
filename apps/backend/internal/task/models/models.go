@@ -1698,6 +1698,7 @@ const (
 	PermissionSourceWeb         PermissionResolutionSource = "web"
 	PermissionSourceExternalMCP PermissionResolutionSource = "external_mcp"
 	PermissionSourceAutomation  PermissionResolutionSource = "automation"
+	PermissionSourceAutoApprove PermissionResolutionSource = "auto_approve"
 	// PermissionSourceAutomationMCP identifies a resolution made by the
 	// fixed in-session coordinator surface. It is distinct from legacy
 	// backend automation and from the authenticated external MCP bridge.

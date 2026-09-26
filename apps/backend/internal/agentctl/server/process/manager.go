@@ -61,13 +61,14 @@ type errorWrapper struct {
 
 // PendingPermission represents a permission request waiting for user response
 type PendingPermission struct {
-	ID         string
-	RequestID  string
-	Request    *adapter.PermissionRequest
-	Snapshot   streams.PendingAgentPermission
-	ResponseCh chan *adapter.PermissionResponse
-	CreatedAt  time.Time
-	State      string
+	ID                string
+	RequestID         string
+	Request           *adapter.PermissionRequest
+	Snapshot          streams.PendingAgentPermission
+	ResponseCh        chan *adapter.PermissionResponse
+	CreatedAt         time.Time
+	State             string
+	AutoApproveOption *adapter.PermissionOption
 }
 
 // PermissionOperationError carries a stable code across the agentctl stream.
@@ -2779,34 +2780,30 @@ func (m *Manager) handlePermissionRequest(ctx context.Context, req *adapter.Perm
 		zap.String("tool_call_id", req.ToolCallID),
 		zap.Bool("auto_approve", m.cfg.AutoApprovePermissions))
 
-	// Blanket auto-approval answers only with an option the provider marked as
-	// an allow. When it cannot, the request continues into the pending flow so a
-	// person can answer it; auto-approval must never be the reason a call is
-	// refused without anyone seeing it.
+	// The backend must persist the selected option before it resolves the live
+	// request. Keep the provider waiting here until that durable claim succeeds.
+	var autoApproveOption *adapter.PermissionOption
 	if m.cfg.AutoApprovePermissions {
 		if decision, approved := m.autoApprovePermission(req); approved {
-			if m.recordAutoApprovedPermission(pendingID, req, decision.option) {
-				return decision.response, nil
-			}
-			m.logger.Error("could not queue automatic permission decision; falling through to prompt",
-				zap.String("pending_id", pendingID),
-				zap.String("option_id", decision.option.OptionID),
-				zap.String("option_kind", string(decision.option.Kind)))
+			autoApproveOption = &decision.option
 		}
 	}
-	if response, approved := m.autoApproveInjectedKandevPermission(req); approved {
-		return response, nil
+	if autoApproveOption == nil {
+		if response, approved := m.autoApproveInjectedKandevPermission(req); approved {
+			return response, nil
+		}
 	}
 
 	// Create pending permission with response channel
 	createdAt := time.Now().UTC()
 	pending := &PendingPermission{
-		ID:         pendingID,
-		RequestID:  uuid.NewString(),
-		Request:    req,
-		ResponseCh: make(chan *adapter.PermissionResponse, 1),
-		CreatedAt:  createdAt,
-		State:      streams.PermissionStatusPending,
+		ID:                pendingID,
+		RequestID:         uuid.NewString(),
+		Request:           req,
+		ResponseCh:        make(chan *adapter.PermissionResponse, 1),
+		CreatedAt:         createdAt,
+		State:             streams.PermissionStatusPending,
+		AutoApproveOption: autoApproveOption,
 	}
 	pending.Snapshot = m.permissionSnapshot(pending)
 
@@ -2903,34 +2900,6 @@ func (m *Manager) autoApprovePermission(req *adapter.PermissionRequest) (autoApp
 	}, true
 }
 
-// recordAutoApprovedPermission emits the permission request that blanket
-// auto-approval just answered, marked with the option Kandev selected.
-//
-// Without it an auto-approved call leaves no trace a person can read: the
-// pending flow is skipped, so no permission message is created, and the only
-// evidence is an agentctl log line. A session where Kandev answered then looks
-// exactly like one where the agent never asked.
-//
-// An automatic approval is returned only after its decision event enters the
-// lifecycle stream. A full channel parks this request; a stopped stream refuses
-// the approval so the caller can retain the interactive permission path.
-func (m *Manager) recordAutoApprovedPermission(pendingID string, req *adapter.PermissionRequest, option adapter.PermissionOption) bool {
-	pending := &PendingPermission{
-		ID:        pendingID,
-		RequestID: uuid.NewString(),
-		Request:   req,
-		CreatedAt: time.Now().UTC(),
-		State:     streams.PermissionStatusResolving,
-	}
-	pending.Snapshot = m.permissionSnapshot(pending)
-
-	event := m.permissionRequestEvent(pending)
-	event.AutoApprovedOptionID = option.OptionID
-	event.AutoApprovedOptionKind = string(option.Kind)
-	event.AutoApprovalSource = streams.PermissionDecisionSourceAutoApprove
-	return m.sendUpdateBlocking(event)
-}
-
 // sendPermissionNotification sends a permission request notification through the updates channel.
 //
 // This is the eighth COVERED site (AC-EXECUTORS-SURVIVAL-001.5/.6) and the
@@ -2955,7 +2924,7 @@ func (m *Manager) permissionRequestEvent(pending *PendingPermission) adapter.Age
 			Kind:     option.Kind,
 		}
 	}
-	return adapter.AgentEvent{
+	event := adapter.AgentEvent{
 		Type:              adapter.EventTypePermissionRequest,
 		SessionID:         m.permissionSessionID(pending),
 		ToolCallID:        pending.Request.ToolCallID,
@@ -2966,6 +2935,13 @@ func (m *Manager) permissionRequestEvent(pending *PendingPermission) adapter.Age
 		ActionType:        pending.Snapshot.Action.Type,
 		ActionDetails:     permissionActionDetailsForEvent(pending.Snapshot.Action),
 	}
+	if pending.AutoApproveOption != nil {
+		event.AutoApprovedOptionID = pending.AutoApproveOption.OptionID
+		event.AutoApprovedOptionKind = string(pending.AutoApproveOption.Kind)
+		event.AutoApprovalSource = streams.PermissionDecisionSourceAutoApprove
+		event.AutoApprovalPending = true
+	}
+	return event
 }
 
 func (m *Manager) sendPermissionNotification(pending *PendingPermission) {
