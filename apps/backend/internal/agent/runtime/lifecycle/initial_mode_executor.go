@@ -12,6 +12,11 @@ import (
 	"github.com/kandev/kandev/internal/agent/runtime/lifecycle/initialmode"
 )
 
+const (
+	initialModeHomePlaceholder = "{home}"
+	initialModeHomePrefix      = initialModeHomePlaceholder + "/"
+)
+
 type initialModeFilePlan struct {
 	delivery agents.InitialModeDelivery
 	value    string
@@ -71,13 +76,13 @@ func exportedInitialModeConfigDir(req *ExecutorCreateRequest) (string, error) {
 
 func initialModeConfigRelativeDir(delivery agents.InitialModeDelivery) (string, error) {
 	template := delivery.DefaultConfigDirTemplate
-	if template == "{home}" {
+	if template == initialModeHomePlaceholder {
 		return ".", nil
 	}
-	if !strings.HasPrefix(template, "{home}/") {
+	if !strings.HasPrefix(template, initialModeHomePrefix) {
 		return "", fmt.Errorf("agent start-mode config path must be relative to its home")
 	}
-	relative := path.Clean(strings.TrimPrefix(template, "{home}/"))
+	relative := path.Clean(strings.TrimPrefix(template, initialModeHomePrefix))
 	if !isSafePortableRelativePath(relative) {
 		return "", fmt.Errorf("agent start-mode config path is unsafe")
 	}
@@ -113,10 +118,10 @@ func installInitialModeLocally(req *ExecutorCreateRequest, sessionHome string) e
 	}
 	runtimeCfg := req.AgentConfig.Runtime()
 	template := runtimeCfg.SessionConfig.SessionDirTemplate
-	if !strings.HasPrefix(template, "{home}/") {
+	if !strings.HasPrefix(template, initialModeHomePrefix) {
 		return fmt.Errorf("agent session directory is not relative to its home")
 	}
-	sessionConfigRel := path.Clean(strings.TrimPrefix(template, "{home}/"))
+	sessionConfigRel := path.Clean(strings.TrimPrefix(template, initialModeHomePrefix))
 	expectedTargetDir := filepath.Join(sessionHome, filepath.FromSlash(sessionConfigRel))
 	if sessionConfigRel != plan.dir || filepath.Clean(targetDir) != filepath.Clean(expectedTargetDir) {
 		return fmt.Errorf("installed start-mode file does not match the agent session directory")
