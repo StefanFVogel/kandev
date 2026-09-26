@@ -70,15 +70,6 @@ type ServiceConfig struct {
 	// turn for an agent that advertised prompt queueing. Independent of
 	// ClaudeBackgroundPromptHandoff, which covers the foreground-idle handoff.
 	ClaudeMidTurnSteering bool
-
-	// OfficeSessionIdentity keys an Office task's session identity on the
-	// run's own agent instead of the task's runner seat. Off by default
-	// because it is an experimental, high-risk, path-scoped change to durable
-	// session identity and existing rows are not migrated. A live
-	// (task_id, agent_profile_id) pair is guarded in-transaction on the
-	// office session creation path, and pre-existing duplicate rows are
-	// deliberately retained and resolved by selection.
-	OfficeSessionIdentity bool
 }
 
 // AttachmentReader is the narrow attachment-store seam needed when the
@@ -1141,6 +1132,11 @@ type Service struct {
 	// orchestrator instances) leave it nil and startIdleSessionReaper
 	// / stopIdleSessionReaper no-op. See idle_session_reaper.go.
 	idleReaper *idleSessionReaper
+
+	// lspLeases pins an execution while a browser-independent language-server
+	// lease owns its task-host stream. The gateway is wired through this narrow
+	// interface to avoid importing its WebSocket package here.
+	lspLeases LSPLeaseLifecycle
 
 	// sessionCeiling is the instance-wide admission controller for agent
 	// session launches. Its initial effective capacity is resolved by the
@@ -4103,7 +4099,7 @@ func (s *Service) NotifyQueuedUserPrompt(ctx context.Context, taskID, sessionID 
 		go func(profileID string) {
 			_, launchErr := s.startCreatedSessionWithComposedPrompt(
 				context.WithoutCancel(ctx), taskID, sessionID, profileID,
-				"", "", true, false, false, false, nil, nil,
+				"", "", "", true, false, false, false, nil, nil,
 			)
 			if launchErr != nil && !errors.Is(launchErr, ErrAgentPromptInProgress) {
 				s.logger.Warn("failed to start session for durable queued prompt",
