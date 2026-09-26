@@ -445,9 +445,33 @@ func (a *mockAgent) Authenticate(_ context.Context, _ acp.AuthenticateRequest) (
 	return acp.AuthenticateResponse{}, nil
 }
 
-// SetSessionMode handles mode changes (no-op for mock).
-func (a *mockAgent) SetSessionMode(_ context.Context, _ acp.SetSessionModeRequest) (acp.SetSessionModeResponse, error) {
+// SetSessionMode accepts the mode and reports it back the way a conforming ACP
+// agent does. Kandev treats a mode as in force only once the agent has
+// published it, so an agent that answers silently leaves every mode change
+// unconfirmed and the session keeps showing the mode it started in.
+func (a *mockAgent) SetSessionMode(_ context.Context, req acp.SetSessionModeRequest) (acp.SetSessionModeResponse, error) {
+	go a.emitCurrentModeAfterDelay(req.SessionId, req.ModeId)
 	return acp.SetSessionModeResponse{}, nil
+}
+
+// emitCurrentModeAfterDelay defers the report so the JSON-RPC response for
+// session/set_mode is written first. Real agents use that order: the reply
+// acknowledges the request, the notification carries the mode that ended up in
+// force.
+func (a *mockAgent) emitCurrentModeAfterDelay(sid acp.SessionId, mode acp.SessionModeId) {
+	time.Sleep(20 * time.Millisecond)
+	a.mu.Lock()
+	conn := a.conn
+	a.mu.Unlock()
+	if conn == nil {
+		return
+	}
+	_ = conn.SessionUpdate(context.Background(), acp.SessionNotification{
+		SessionId: sid,
+		Update: acp.SessionUpdate{
+			CurrentModeUpdate: &acp.SessionCurrentModeUpdate{CurrentModeId: mode},
+		},
+	})
 }
 
 func (a *mockAgent) SetSessionConfigOption(_ context.Context, req acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {
