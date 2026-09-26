@@ -137,6 +137,20 @@ func (m *Manager) reportInitialModeWarning(
 	onProgress(step, 0, 0)
 }
 
+// declaresStartModeChannel reports whether this agent can be started in the
+// requested mode at all. Without a declared channel the mode is applied after
+// session/new by design, which is not a delivery failure.
+func declaresStartModeChannel(agentConfig agents.Agent, mode string) bool {
+	if agentConfig == nil || mode == "" {
+		return false
+	}
+	runtimeCfg := agentConfig.Runtime()
+	if runtimeCfg == nil {
+		return false
+	}
+	return runtimeCfg.InitialMode.Delivers(mode)
+}
+
 // containerRuntimeNeedsSandboxDeclaration reports whether this executor runs
 // the agent inside container isolation, where a permissive mode would otherwise
 // be disabled for the container's root process identity.

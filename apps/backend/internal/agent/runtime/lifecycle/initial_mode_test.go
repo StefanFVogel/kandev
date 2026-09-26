@@ -245,3 +245,31 @@ func TestApplyInitialModePreservesExplicitConfigurationDirectory(t *testing.T) {
 		t.Fatalf("CLAUDE_CONFIG_DIR = %q, want explicit path %q", got, expectedConfigDir)
 	}
 }
+
+// The start-mode warning is a preparation step, and a preparation step that
+// attaches to every launch stops meaning anything: an agent without a declared
+// channel always applies its mode after session/new, which is the design, not
+// a delivery failure. Reporting it left the preparation panel permanently in
+// completed_with_warnings.
+func TestDeclaresStartModeChannel(t *testing.T) {
+	tests := []struct {
+		name  string
+		agent agents.Agent
+		mode  string
+		want  bool
+	}{
+		{name: "declared channel carries the mode", agent: claudeACPAgent(t), mode: "bypassPermissions", want: true},
+		{name: "declared channel without that mode", agent: claudeACPAgent(t), mode: "totally-unknown", want: false},
+		{name: "agent without a channel", agent: &agentWithoutInitialMode{}, mode: "bypassPermissions", want: false},
+		{name: "no mode requested", agent: claudeACPAgent(t), mode: "", want: false},
+		{name: "no agent", agent: nil, mode: "bypassPermissions", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := declaresStartModeChannel(tc.agent, tc.mode); got != tc.want {
+				t.Errorf("declaresStartModeChannel = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

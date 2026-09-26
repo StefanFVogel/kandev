@@ -992,7 +992,11 @@ func (m *Manager) launchBuildExecutorRequest(ctx context.Context, executionID st
 	// agents without a declared channel.
 	requestedMode := m.launchSessionMode(ctx, reqWithWorktree, profileInfo)
 	var initialMode initialModeOutcome
-	if requestedMode != "" && (reqWithWorktree.PreviousExecutionID != "" || reqWithWorktree.WorkspaceReuseRequired) {
+	// A resumed session keeps the configuration its executor already carries,
+	// and runs no environment preparation to report against.
+	retainsExistingConfiguration := requestedMode != "" &&
+		(reqWithWorktree.PreviousExecutionID != "" || reqWithWorktree.WorkspaceReuseRequired)
+	if retainsExistingConfiguration {
 		initialMode = initialModeOutcome{
 			Mode:   requestedMode,
 			Reason: "an existing executor session retains its startup configuration",
@@ -1005,8 +1009,17 @@ func (m *Manager) launchBuildExecutorRequest(ctx context.Context, executionID st
 			zap.String("execution_id", executionID),
 			zap.String("mode", initialMode.Mode),
 			zap.String("reason", initialMode.Reason))
-		m.reportInitialModeWarning(onProgress, reqWithWorktree.TaskID, reqWithWorktree.SessionID,
-			initialMode.Mode, initialMode.Reason)
+		// Report only what an operator can act on: a mode this agent could
+		// have started in and did not. An agent that declares no start-mode
+		// channel always applies its mode after session/new, and a resumed
+		// session keeps the configuration its executor already carries, so
+		// neither is a preparation warning. Both would otherwise attach to
+		// every launch and leave the preparation panel reporting warnings it
+		// cannot explain.
+		if !retainsExistingConfiguration && declaresStartModeChannel(agentConfig, requestedMode) {
+			m.reportInitialModeWarning(onProgress, reqWithWorktree.TaskID, reqWithWorktree.SessionID,
+				initialMode.Mode, initialMode.Reason)
+		}
 	}
 
 	acpMcpServers, err := m.resolveMcpServersWithParams(ctx, executionProfileID(reqWithWorktree), reqWithWorktree.Metadata, agentConfig)
