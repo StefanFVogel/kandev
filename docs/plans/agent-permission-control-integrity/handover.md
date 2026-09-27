@@ -425,6 +425,37 @@ That script initializes an MCP session over `POST /mcp`, calls
 UUID, and prints the task count before and after so the "creates nothing" half
 is visible rather than assumed.
 
+## 6a. Scope reserved by the maintainer
+
+On 2026-09-27 Carlos Florencio asked, in the pull request, that we leave four
+areas to him while he replaces the settings-file overlay with ACP session
+controls:
+
+- the ACP adapter under `agentctl/server/adapter/transport/acp`
+- the lifecycle session/mode flow
+- the executor overlay removal
+- the tests and docs belonging to those
+
+His stated direction: prefer the advertised mode option through
+`session/set_config_option` with legacy `session/set_mode` compatibility, accept
+authoritative settings responses (Claude can report a change through
+`config_option_update` without a separate `current_mode_update`), remove
+automatic mode-file writes and mode-specific settings-directory redirection, and
+stop before the first prompt when an explicit start mode cannot be confirmed. He
+also corrected an assumption this package was built on: the bridge's mode API
+calls the SDK's `setPermissionMode`, so a runtime mode switch is not
+instruction-only.
+
+The scope of our changes in those areas was posted to the pull request on the
+same day. Two of them sit on top of his work and exist to keep CI green:
+`ba47043d7` (the mock agent publishes `current_mode_update` after accepting
+`set_mode`) and `187d9ea5c` (the start-mode warning is reported only when the
+agent declares a channel and the session is not resumed). Removing either
+without replacement reproduces the nine failing E2E jobs seen on `ee8fe7fdd`.
+
+Automated merge-conflict handling stays active on the branch, so merges can
+still touch his files; each such case is reported in the pull request.
+
 ## 7. Suggested next steps
 
 1. Decide whether Kandev should surface the effective deny rules of an agent
