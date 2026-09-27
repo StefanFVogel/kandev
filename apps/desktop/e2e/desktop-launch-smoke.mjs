@@ -13,6 +13,18 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(__dirname, "..");
 const repoRoot = resolve(desktopRoot, "../..");
 
+let atomicWriteSequence = 0;
+
+export async function writeJsonAtomically(path, contents) {
+  const temporaryPath = `${path}.${process.pid}.${++atomicWriteSequence}.tmp`;
+  try {
+    await writeFile(temporaryPath, contents);
+    await rename(temporaryPath, path);
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
+}
+
 // The Rust side (apps/desktop/src-tauri/src/backend.rs) does a two-stage wait before it
 // navigates the webview: wait_for_backend polls GET /health every 250ms against a bounded
 // HEALTH_TIMEOUT (60s), then wait_for_ready polls GET /ready every 250ms with NO timeout —
