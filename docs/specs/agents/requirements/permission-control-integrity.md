@@ -158,4 +158,4 @@ rather than a misplaced file.
 - Changing external permission resolution, covered by
   [`external-permission-resolution.md`](external-permission-resolution.md).
 - Changing `create_task_kandev` profile resolution, covered by
-  [`../../tasks/requirements/mcp-create-task-agent-profile-validation.md`](../../tasks/requirements/mcp-create-task-agent-profile-validation.md).
+  [`../../tasks/requirements/mcp-create-task-profile-validation.md`](../../tasks/requirements/mcp-create-task-profile-validation.md).

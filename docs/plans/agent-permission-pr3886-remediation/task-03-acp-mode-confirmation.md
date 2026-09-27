@@ -71,7 +71,7 @@ and deterministic test barriers rather than a sleep-based race test.
 
 ## Inputs
 
-- [Requirement](../../specs/agents/requirements/agent-permission-control-integrity.md), `002.1`–`002.3`, `002.16`.
+- [Requirement](../../specs/agents/requirements/permission-control-integrity.md), `002.1`–`002.3`, `002.16`.
 - [System design](../../specs/agents/system-design/agent-permission-control-integrity.md), mode confirmation.
 
 ## Results

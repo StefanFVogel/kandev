@@ -85,7 +85,7 @@ claiming provider-specific first-turn enforcement.
 
 ## Inputs
 
-- [Requirement](../../specs/agents/requirements/agent-permission-control-integrity.md), `002`, `003`, `005`.
+- [Requirement](../../specs/agents/requirements/permission-control-integrity.md), `002`, `003`, `005`.
 - [System design](../../specs/agents/system-design/agent-permission-control-integrity.md), end-to-end evidence.
 - [Original plan](../agent-permission-control-integrity/plan.md).
 

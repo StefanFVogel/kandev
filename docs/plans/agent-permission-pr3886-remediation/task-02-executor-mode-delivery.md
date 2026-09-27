@@ -76,7 +76,7 @@ backend host or Docker target. Warm resumes must not recopy host settings.
 
 ## Inputs
 
-- [Requirement](../../specs/agents/requirements/agent-permission-control-integrity.md), `002.7`, `002.10`, `002.13`, `002.14`.
+- [Requirement](../../specs/agents/requirements/permission-control-integrity.md), `002.7`, `002.10`, `002.13`, `002.14`.
 - [System design](../../specs/agents/system-design/agent-permission-control-integrity.md), initial-mode delivery.
 - [Portable configuration contract](../../specs/agents/requirements/portable-agent-configuration.md).
 

@@ -89,7 +89,7 @@ source and avoid a second mode mutation path.
 
 ## Inputs
 
-- [Requirement](../../specs/agents/requirements/agent-permission-control-integrity.md), `002.2`, `002.3`, `002.18`.
+- [Requirement](../../specs/agents/requirements/permission-control-integrity.md), `002.2`, `002.3`, `002.18`.
 - [System design](../../specs/agents/system-design/agent-permission-control-integrity.md), mode mismatch presentation.
 - [Mobile UI language](../../../.agents/skills/mobile-parity/references/kandev-mobile-ui-language.md).
 

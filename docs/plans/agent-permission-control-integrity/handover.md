@@ -30,9 +30,9 @@ All eight work orders are `done`. The branch is
 
 Requirements and designs:
 
-- `docs/specs/agents/requirements/agent-permission-control-integrity.md`
+- `docs/specs/agents/requirements/permission-control-integrity.md`
 - `docs/specs/agents/system-design/agent-permission-control-integrity.md`
-- `docs/specs/tasks/requirements/mcp-create-task-agent-profile-validation.md`
+- `docs/specs/tasks/requirements/mcp-create-task-profile-validation.md`
 - `docs/specs/tasks/system-design/mcp-create-task-agent-profile-validation.md`
 
 The designs are still `draft`. Promote them to `current` only after confirming

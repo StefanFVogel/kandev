@@ -71,7 +71,7 @@ the existing authenticated path when no safe overlay channel exists.
 
 ## Inputs
 
-- [Requirement](../../specs/agents/requirements/agent-permission-control-integrity.md), `002.8`, `002.12`, `002.15`, `002.17`.
+- [Requirement](../../specs/agents/requirements/permission-control-integrity.md), `002.8`, `002.12`, `002.15`, `002.17`.
 - [System design](../../specs/agents/system-design/agent-permission-control-integrity.md), initial-mode delivery.
 - [ADR](../../decisions/2026-09-25-session-mode-configuration-boundary.md).
 

@@ -32,9 +32,9 @@ not.
 
 | Document | Role |
 | --- | --- |
-| [`agent-permission-control-integrity.md`](../../specs/agents/requirements/agent-permission-control-integrity.md) | Requirements for the three profile permission controls |
+| [`permission-control-integrity.md`](../../specs/agents/requirements/permission-control-integrity.md) | Requirements for the three profile permission controls |
 | [`agent-permission-control-integrity.md`](../../specs/agents/system-design/agent-permission-control-integrity.md) | Design for flag destination, mode confirmation, auto-approve selection, contract cleanup, evidence |
-| [`mcp-create-task-agent-profile-validation.md`](../../specs/tasks/requirements/mcp-create-task-agent-profile-validation.md) | Requirements for `create_task_kandev` profile validation |
+| [`mcp-create-task-profile-validation.md`](../../specs/tasks/requirements/mcp-create-task-profile-validation.md) | Requirements for `create_task_kandev` profile validation |
 | [`mcp-create-task-agent-profile-validation.md`](../../specs/tasks/system-design/mcp-create-task-agent-profile-validation.md) | Design for synchronous validation and async launch-failure visibility |
 
 ## Measured baseline

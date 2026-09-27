@@ -71,7 +71,7 @@ idempotent update keyed by request identity.
 
 ## Inputs
 
-- [Requirement](../../specs/agents/requirements/agent-permission-control-integrity.md), `003.4`, `003.9`, `003.11`.
+- [Requirement](../../specs/agents/requirements/permission-control-integrity.md), `003.4`, `003.9`, `003.11`.
 - [System design](../../specs/agents/system-design/agent-permission-control-integrity.md), auto-approve selection.
 
 ## Results
