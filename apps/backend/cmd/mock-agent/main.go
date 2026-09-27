@@ -32,6 +32,7 @@ const (
 	reasoningEffortMed  = "medium"
 	reasoningEffortHigh = "high"
 	mockDefaultMode     = "default"
+	mockPlanMode        = "plan-mock"
 )
 
 // logOutput is the writer for log messages (stderr). Tests can override this.
@@ -197,7 +198,7 @@ func mockSessionModes(current acp.SessionModeId) *acp.SessionModeState {
 		CurrentModeId: current,
 		AvailableModes: []acp.SessionMode{
 			{Id: mockDefaultMode, Name: "Default", Description: &defaultDesc},
-			{Id: "plan-mock", Name: "Plan Mock", Description: &planDesc},
+			{Id: mockPlanMode, Name: "Plan Mock", Description: &planDesc},
 		},
 	}
 }
@@ -254,7 +255,7 @@ func mockSessionConfigOptionsForModel(model string) []acp.SessionConfigOption {
 			Name:         "Mode",
 			Options: acp.SessionConfigSelectOptions{Ungrouped: &acp.SessionConfigSelectOptionsUngrouped{
 				{Value: mockDefaultMode, Name: "Default", Description: ptr("Default mock mode")},
-				{Value: "plan-mock", Name: "Plan Mock", Description: ptr("Plan-style mock mode for testing")},
+				{Value: mockPlanMode, Name: "Plan Mock", Description: ptr("Plan-style mock mode for testing")},
 			}},
 			Type: "select",
 		}},
@@ -459,7 +460,7 @@ func (a *mockAgent) Authenticate(_ context.Context, _ acp.AuthenticateRequest) (
 // SetSessionMode reports the accepted mode through the ACP update that real
 // agents use. The host must observe this report before it claims convergence.
 func (a *mockAgent) SetSessionMode(_ context.Context, req acp.SetSessionModeRequest) (acp.SetSessionModeResponse, error) {
-	if req.ModeId != mockDefaultMode && req.ModeId != "plan-mock" {
+	if req.ModeId != mockDefaultMode && req.ModeId != mockPlanMode {
 		return acp.SetSessionModeResponse{}, fmt.Errorf("unknown mock mode %q", req.ModeId)
 	}
 	a.mu.Lock()
