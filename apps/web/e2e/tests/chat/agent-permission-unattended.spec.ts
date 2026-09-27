@@ -70,10 +70,11 @@ test.describe("Unattended permission for a state-changing Git command", () => {
     const history = await readAutoApprovalHistory(apiClient, task.session_id);
     expect(history).toMatchObject({
       status: "approved",
-      permission_decision: {
+      permission_resolution: {
         option_id: "allow",
         option_kind: "allow_once",
         source: "auto_approve",
+        result: "accepted",
       },
     });
 
