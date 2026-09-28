@@ -3,6 +3,7 @@ created: 2026-09-27
 status: in_progress
 requirements:
   - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-002
+  - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-005
   - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-007
 system_design:
   - ../../specs/agents/system-design/agent-permission-control-integrity.md
