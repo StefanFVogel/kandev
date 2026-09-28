@@ -521,7 +521,7 @@ func (m *Manager) AuthenticateBySessionID(ctx context.Context, sessionID, method
 // set_session_mode action persisted a newer mode in the same on_enter batch
 // before its agent mode event updated modeState. A nil/empty resolved mode is a
 // no-op. Addresses issue #1183.
-func (m *Manager) reapplySessionModeAfterReset(ctx context.Context, execution *AgentExecution, newSessionID string, prev *CachedModeState) {
+func (m *Manager) reapplySessionModeAfterReset(ctx context.Context, execution *AgentExecution, newSessionID string, prev *CachedModeState) error {
 	fallback := ""
 	if prev != nil {
 		fallback = prev.CurrentModeID
@@ -538,7 +538,9 @@ func (m *Manager) reapplySessionModeAfterReset(ctx context.Context, execution *A
 			zap.String("execution_id", execution.ID),
 			zap.String("mode", mode),
 			zap.Error(err))
+		return err
 	}
+	return nil
 }
 
 func (m *Manager) applySessionModeAfterReset(
@@ -548,28 +550,35 @@ func (m *Manager) applySessionModeAfterReset(
 ) error {
 	client, releaseClient := execution.AcquireAgentCtlClient()
 	defer releaseClient()
-	if client == nil || mode == "" {
+	if mode == "" {
 		return nil
+	}
+	if client == nil {
+		return fmt.Errorf("cannot restore permission mode %q: agentctl client is unavailable", mode)
 	}
 	result, err := client.SetMode(ctx, newSessionID, mode)
 	if err != nil {
 		return fmt.Errorf("failed to restore session mode %q: %w", mode, err)
 	}
 	m.reportModeOutcome(execution, result)
+	if !result.Confirmed || result.Effective == "" {
+		return fmt.Errorf("requested permission mode %q was not confirmed after context reset", mode)
+	}
 	availableModes := []streams.SessionModeInfo(nil)
 	if current := execution.GetModeState(); current != nil {
 		availableModes = current.AvailableModes
 	}
-	// Restore the cache too: the fresh session would otherwise report the agent's
-	// default mode, leaving modeState stale relative to what we just re-applied.
 	execution.SetModeState(&CachedModeState{
-		CurrentModeID:  mode,
+		CurrentModeID:  result.Effective,
 		AvailableModes: availableModes,
 	})
+	if result.Effective != mode {
+		return fmt.Errorf("requested permission mode %q was not applied after context reset; agent reported %q", mode, result.Effective)
+	}
 	m.logger.Info("re-applied session mode after context reset",
 		zap.String("execution_id", execution.ID),
 		zap.String("session_id", execution.SessionID),
-		zap.String("mode", mode))
+		zap.String("mode", result.Effective))
 	return nil
 }
 

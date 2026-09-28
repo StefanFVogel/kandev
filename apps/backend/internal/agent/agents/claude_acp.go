@@ -134,6 +134,12 @@ func (a *ClaudeACP) Runtime() *RuntimeConfig {
 			"MCP_TIMEOUT":      "30000",
 			"MCP_TOOL_TIMEOUT": "7200000",
 		},
+		ContainerEnv: map[string]string{
+			// Claude's ACP bridge limits bypass mode for root unless the process
+			// runs in a declared sandbox. Executor isolation makes this available;
+			// it does not select a session mode.
+			"IS_SANDBOX": "1",
+		},
 		Mounts: []MountTemplate{
 			{Source: "{workspace}", Target: "/workspace"},
 		},
@@ -141,7 +147,6 @@ func (a *ClaudeACP) Runtime() *RuntimeConfig {
 		Protocol:        agent.ProtocolACP,
 		ProjectSkillDir: ".claude/skills",
 		UserSkillDir:    ".claude/skills",
-		InitialMode:     claudeInitialModeDelivery(),
 		SessionConfig: SessionConfig{
 			NativeSessionResume: true,
 			CanRecover:          &canRecover,

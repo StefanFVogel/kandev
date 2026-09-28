@@ -1343,9 +1343,6 @@ func (r *SSHExecutor) maybeUploadCredentials(
 			zap.String("session_id", req.SessionID),
 			zap.Error(err),
 		)
-		if req.InitialMode != nil {
-			return err
-		}
 	}
 	return nil
 }

@@ -280,25 +280,16 @@ func TestBuildSSHCreateInstanceRequestStripsForkPRCredentials(t *testing.T) {
 	}
 }
 
-func TestBuildSSHCreateInstanceRequestForwardsDeliveredModeConfigDir(t *testing.T) {
+func TestBuildSSHCreateInstanceRequestPreservesSelectedClaudeConfigDir(t *testing.T) {
 	configDir := "/home/agent/.kandev/sessions/instance-1/.claude"
 	req := &ExecutorCreateRequest{
-		InstanceID: "instance-1",
-		InitialMode: &AgentInitialModeRequest{
-			Mode: "bypassPermissions", Delivered: true, ConfigDir: configDir,
-		},
+		InstanceID:  "instance-1",
 		AgentConfig: agents.NewClaudeACP(),
 		Env:         map[string]string{"CLAUDE_CONFIG_DIR": configDir},
 	}
 	got := buildSSHCreateInstanceRequest(req, "/workspace", "/agentctl")
 	if got.Env["CLAUDE_CONFIG_DIR"] != configDir {
-		t.Fatalf("agent config dir = %q, want %q", got.Env["CLAUDE_CONFIG_DIR"], configDir)
-	}
-
-	req.InitialMode.Delivered = false
-	got = buildSSHCreateInstanceRequest(req, "/workspace", "/agentctl")
-	if got.Env["CLAUDE_CONFIG_DIR"] != "" {
-		t.Fatalf("undelivered mode config dir escaped into agent environment: %q", got.Env["CLAUDE_CONFIG_DIR"])
+		t.Fatalf("selected agent config dir = %q, want unchanged %q", got.Env["CLAUDE_CONFIG_DIR"], configDir)
 	}
 }
 

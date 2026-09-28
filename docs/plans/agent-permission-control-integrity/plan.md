@@ -16,6 +16,14 @@ system_design:
 
 # Implementation Plan: Agent Permission Control Integrity
 
+## Follow-up decision (2026-09-27)
+
+The [session-control replacement](../agent-permission-session-controls/plan.md)
+supersedes this package's automatic settings-overlay approach. The pinned bridge
+supports SDK permission-mode changes through ACP. Earlier statements that ACP
+only changes instructions are not established. Completed results below remain
+historical records. They do not prove real-Claude permission enforcement.
+
 ## Overview
 
 A field report on v0.94.0 describes three independent defects in agent-session

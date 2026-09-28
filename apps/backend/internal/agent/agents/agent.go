@@ -248,12 +248,16 @@ type PassthroughOptions struct {
 
 // RuntimeConfig holds Docker / standalone runtime settings.
 type RuntimeConfig struct {
+	// ContainerEnv provides agent-specific environment required only when the
+	// process runs inside a container runtime. These values are independent of
+	// session mode and never reach host or SSH processes.
 	Image          string
 	Tag            string
 	Cmd            Command
 	Entrypoint     Command
 	WorkingDir     string
 	Env            map[string]string
+	ContainerEnv   map[string]string
 	RequiredEnv    []string
 	Mounts         []MountTemplate
 	ResourceLimits ResourceLimits
@@ -286,11 +290,6 @@ type RuntimeConfig struct {
 	// final child env after adapter merge; the inference executor strips
 	// them from the one-shot probe/inference subprocess env.
 	StripEnv []string
-	// InitialMode declares how this agent accepts the permission mode it should
-	// start in. An absent declaration means Kandev can only switch the mode
-	// after session/new, which reaches the agent's instruction layer without
-	// necessarily changing what the launched process enforces.
-	InitialMode InitialModeDelivery
 	// NamespacesMCPToolsByServer is true for clients that add the MCP server
 	// name to every tool before presenting it to the model. The per-instance
 	// Kandev MCP server removes that presentation suffix before the client adds

@@ -8,6 +8,7 @@ requirements:
   - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-004
   - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-005
   - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-006
+  - REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-007
 ---
 
 # Agent Permission Control Integrity System Design
@@ -34,6 +35,7 @@ to the provider rather than to an unverifiable Kandev claim.
 | `REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-004` | [Configure contract cleanup](#configure-contract-cleanup) |
 | `REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-005` | [End-to-end evidence](#end-to-end-evidence) |
 | `REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-006` | [Workspace-seeded agent configuration](#workspace-seeded-agent-configuration) |
+| `REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-007` | [Initial mode delivery](#initial-mode-delivery), [Mode confirmation and attribution](#mode-confirmation-and-attribution) |
 
 ## Baseline before PR #3886
 
@@ -106,122 +108,100 @@ append.
 
 ## Initial mode delivery
 
-The remediation of PR #3886 follows
-[ADR-2026-09-25-session-mode-configuration-boundary](../../../decisions/2026-09-25-session-mode-configuration-boundary.md).
-The start-mode artifact is a session-owned overlay, not an implicit request to
-transfer host agent configuration. The executor profile's portable bundle and
-authentication selections remain independent authorities.
+The boundary follows
+[ADR-2026-09-27-session-permissions-without-settings-mutation](../../../decisions/2026-09-27-session-permissions-without-settings-mutation.md).
+The implementation now applies explicit modes through ACP before the first
+prompt, preferring the advertised `mode` config option and its authoritative
+returned options while retaining legacy `session/set_mode` support. It does not
+write a mode overlay or redirect the configuration directory. The original
+provider-level Git refusal remains unverified until the isolated real-Claude
+acceptance check can run with a separately supplied test credential.
 
-The reported symptom is that a permission mode reaches the agent's instruction
-layer without changing enforcement. That is consistent with what the launch path
-does: Kandev never configures the agent process with a mode. It creates the
-session in the runtime's default mode and then issues a mid-session switch.
+### Evidence and correction
 
-Kandev therefore needs an initial-mode channel, resolved before the agent
-process starts.
+Kandev pins Claude ACP to `0.81.2` in
+`apps/backend/internal/agent/agents/managed_npm_runtime_versions.json`.
+The npm release identifies upstream commit
+`5dbb453c63a89746627799b2b06b31ba01a1b674`.
 
-### Measured baseline
+At that commit:
 
-The reporter measured the switch reaching the agent twice, once through the
-profile at session start and once by toggling the mode on a live session. In
-both runs Kandev logged the mode as applied, the agent stated in its own output
-that the permissive mode was active, and the state-changing commands were still
-refused. The launched process carried `--permission-mode default` in both runs.
+- [`session-mode.ts`](https://github.com/agentclientprotocol/claude-agent-acp/blob/5dbb453c63a89746627799b2b06b31ba01a1b674/src/session-mode.ts#L211)
+  calls `query.setPermissionMode` and awaits its result.
+- [`acp-agent.ts`](https://github.com/agentclientprotocol/claude-agent-acp/blob/5dbb453c63a89746627799b2b06b31ba01a1b674/src/acp-agent.ts#L6889)
+  handles `session/set_config_option`, applies the mode through that same SDK
+  control, and returns `configOptions` with the resulting mode value.
+- A normal legacy mode request emits `config_option_update`. It need not emit
+  `current_mode_update`. Kandev currently waits only for the latter.
+- Creation metadata spreads SDK options, then overrides `permissionMode` with
+  the bridge's resolved initial mode. Direct `_meta.claudeCode.options.permissionMode`
+  is therefore not a reliable startup control.
+- SDK `settings`, `env`, and `extraArgs` can pass through creation metadata.
+  They are provider-specific controls. They do not establish that a settings
+  object overrides the bridge's explicit initial permission mode.
+- [`index.ts`](https://github.com/agentclientprotocol/claude-agent-acp/blob/5dbb453c63a89746627799b2b06b31ba01a1b674/src/index.ts#L9)
+  forwards arbitrary CLI arguments only in `--cli` mode. That mode does not
+  retain the ACP connection. No dedicated permission-mode environment control
+  was found in the reviewed bridge source.
 
-Two consequences for this design:
+The earlier claim that the switch only changes instructions was not established.
+A process argument can retain its startup value after an SDK control changes
+runtime state. Its unchanged value does not prove a failed permission change.
+The original repository-specific refusal remains unproven against real Claude.
+Mock-agent tests do not settle that question.
 
-- The agent's own statement that a mode is active, the Kandev log line, and the
-  displayed session mode are all downstream of the switch and none of them
-  observes enforcement. No acceptance criterion may rest on them.
-- In this configuration the permissive mode was worse than the default mode:
-  the default profile raised a permission prompt and the command ran once
-  answered, while the permissive profile refused without a prompt. Whatever
-  else is true, delivering the mode after the process has started is not
-  equivalent to starting the process in it.
+### Session flow and ownership
 
-Separately, the reporter's user-level `~/.claude/settings.json` carries no
-`permissions` block at all, so nothing escalates from the user scope today. That
-is the scope this design writes into, and it is currently empty rather than
-conflicting.
+The flow is:
 
-### Agent seam
+`profile/session override -> session/new or session/load -> advertised mode
+control -> agent response -> confirmed session state -> first prompt`.
 
-`agents.Agent` gains an optional `InitialModeDelivery` declaration describing how
-that agent accepts a start mode. It has three shapes:
+The lifecycle layer resolves the existing mode precedence. The ACP adapter owns
+provider capability discovery, RPC selection, and interpretation of its response.
+Executors own process isolation and credential delivery. They do not encode a
+permission mode into a settings file.
 
-- **`settings`** — the agent resolves a start mode from a settings file in a
-  configuration directory it reads from the environment. Kandev writes the mode
-  into a per-session directory and points the agent at it.
-- **`session_meta`** — the agent accepts a start mode in the `session/new`
-  request metadata. Kandev populates it in `acp.Adapter.NewSession`.
-- **absent** — no channel. Kandev keeps the post-creation switch as today and
-  records the mode as best-effort rather than as delivered.
+`SessionManager.InitializeAndPrompt` already applies the profile and runtime
+layers before `dispatchInitialPrompt`. Keep that order and propagate an unmet
+explicit mode as a startup error before dispatch. Resolve the winning mode once
+for enforcement. Preserve the profile-baseline snapshot separately.
 
-Only agents with a verified wire contract get a non-absent declaration. Claude
-ACP uses `settings`, because the bundled bridge resolves its start mode from
-`permissions.defaultMode` in the settings it merges, and overrides any
-caller-supplied `permissionMode` in the session request. No speculative
-declaration is added for an agent whose contract has not been read.
+Prefer the advertised select option with category `mode`. Use its actual ID,
+including grouped choices. Do not hardcode the Claude option ID in generic code.
+Use `session/set_config_option` and its returned current value. If no mode config
+option exists, use advertised legacy `modes` with `session/set_mode`. A genuine
+method-not-found response permits a legacy fallback when the agent advertises
+it. A provider denial or invalid value does not permit a second escalation path.
 
-### Per-session configuration directory
+Reuse this mode operation for profile application, user changes, resume, and
+context reset. Mode-shaped generic settings changes must enter the same
+serialization and observation path. Other settings keep their existing path.
+No public API needs a Claude-specific control.
 
-For the `settings` shape the write must not touch the user's shared agent
-configuration. Container executors already bind-mount an isolated per-instance
-directory through `RuntimeConfig.SessionConfig.SessionDirTemplate` /
-`SessionDirTarget`. Host executors do not: they inherit the user's real home,
-so today a Claude ACP launch on a standalone executor reads the developer's own
-`~/.claude`.
+Keep requested mode separate from reported mode. Persist the selected override
+in existing session metadata. Store neither permission mode nor its confirmation
+in Claude user settings. No database migration or new profile option is needed
+for this replacement.
 
-The lifecycle manager resolves the launch mode and creates one overlay from
-empty settings or the settings bundle that the executor profile selected.
-It changes only the declared mode key. A host executor may use the existing
-per-instance directory (`CommandBuilder.ExpandSessionDir`) only when changing
-the agent's configuration-directory environment preserves the selected
-authentication and the caller's explicit directory setting. It must not link
-the rest of the host agent directory as an implicit side effect. If the
-provider has no safe channel for that launch, the mode is unavailable at
-startup and the reason is session-visible.
+### Process controls and settings fallback
 
-The executor that launches the agent installs the resolved overlay after its
-normal selected-bundle preparation and before the process starts. For Docker,
-the final file resides in the mounted session directory at the declared
-`SessionDirTarget`. For SSH, the uploader installs it in the remote session
-home that is passed as the agent's configuration directory. For Kubernetes,
-the pod transfer installs it in the resolved session home used by that launch;
-it must not assume `/root/.claude` when the pod reads another home. Warm
-resumes reuse the session-owned file and do not recopy unselected host data.
-An ACP session resume restores its mode through `LoadSession`. It does not
-emit a new start-mode preparation warning for the existing session.
-The executor reports the actual agent-visible path and installation result;
-`initialModeOutcome.Delivered` becomes true only after that result succeeds.
+Remove `InitialModeDelivery` settings-file machinery where it has no remaining
+consumer, including executor uploads and mode-specific `CLAUDE_CONFIG_DIR`
+changes. Preserve explicit portable settings transfers and credential delivery.
+Do not erase historical session files automatically during an update.
 
-The settings materializer accepts an object root only. A JSON `null`, scalar,
-or array becomes a new object or a structured preparation error before nested
-assignment; it never panics. The overlay is written atomically with private
-permissions and does not mutate a selected source bundle.
+Claude restricts bypass for root outside a sandbox. `IS_SANDBOX` controls that
+availability, not the selected mode. Keep any verified container-only declaration
+separate from mode delivery. Never set it on an ordinary host or SSH process
+merely to make bypass available. Respect provider policy restrictions.
 
-### Escalation trust and process identity
-
-Two runtime constraints must be handled rather than discovered at run time:
-
-- The agent runtime may strip an escalating `permissions.defaultMode` that comes
-  from a repository-committed settings source. Writing into the per-session
-  configuration directory places the value in the non-committed source, which is
-  why the previous section chooses that location rather than the workspace's
-  `.claude/`.
-- The agent runtime may disable a permissive mode entirely for the launched
-  process identity — the bundled Claude bridge computes
-  `ALLOW_BYPASS = !IS_ROOT || !!process.env.IS_SANDBOX` and then both omits
-  `bypassPermissions` from the offered modes and downgrades a settings-supplied
-  value to the default, with a log line as the only signal. For a container
-  executor, whose isolation is exactly what that escape hatch is for, Kandev
-  declares the sandbox environment. For any executor where the requested mode
-  remains unavailable, the session reports it as unavailable with the reason
-  instead of running in another mode silently.
-
-`agents.Agent` carries the mode-availability precondition alongside the delivery
-declaration, so this stays agent-owned data rather than a special case in the
-launch path.
+A process argument or environment value is an alternative only after its exact
+bridge version and ACP behavior are verified. It must not affect other sessions.
+No shared-settings fallback is needed on the available evidence, so none ships.
+If a future provider gap requires one, it needs a separate profile opt-in that
+defaults to false, including migration and import paths. Its design must address
+shared scope, concurrent sessions, user edits, and recovery before implementation.
 
 ## Workspace-seeded agent configuration
 
@@ -256,39 +236,31 @@ promoted to a shared task root is a separate decision with its own blast radius
 across repositories; this design only removes the silent case.
 
 Note that [initial mode delivery](#initial-mode-delivery) is unaffected by the
-layout, because it writes into the per-session configuration directory and
-points the agent at it through the environment rather than through the
-workspace.
+layout, because it targets an ACP session ID rather than a workspace file.
 
 ## Mode confirmation and attribution
 
 ### Confirmation
 
-`acp.Adapter.SetMode` stops synthesizing the session-mode event from the
-requested value. It captures a mode-observation sequence before sending
-`session/set_mode` and serializes mode mutations per adapter session. A report
-received after that capture belongs to the in-flight request even if it arrives
-before the RPC response. A pre-request cached mode cannot confirm a new
-request. The emitted `session_mode` event carries the agent's reported current
-mode. If none is observed, it leaves the effective mode empty and keeps the
-request separate. The UI shows Unknown with an unconfirmed warning. A report
-from another ACP session does not enter this adapter session's observation
-sequence.
+`acp.Adapter.SetMode` returns requested, effective, and confirmed values.
+A matching returned `configOptions` snapshot confirms the effective mode for
+that request. It does not require an additional notification or a 750 ms delay.
+A returned different value is a clamp. A missing mode value remains unconfirmed.
+Do not reuse helpers that manufacture current values from the requested value.
 
-Because a provider may publish `current_mode_update` asynchronously after
-answering `session/set_mode`, the adapter waits for a bounded settle window for
-a `current_mode_update` naming either the requested mode or a different one
-before emitting. The window reuses the existing convergence pattern from
-`emitSetModelEvent`; on expiry the adapter marks the result unconfirmed rather
-than assuming success. Because ACP reports have no request ID, a timed-out
-request makes the next request ambiguous. Its report cannot confirm that next
-request. An idle mode report clears the ambiguity.
+For the legacy method, accept current-mode reports and mode values in
+`config_option_update`. Capture the observation generation before the request.
+Serialize mode changes, including changes through the generic config API.
+Reject reports from another session and observations from before the request.
+Keep bounded waiting and timeout ambiguity handling for asynchronous reports.
+A correlated settings response does not inherit ambiguity from an earlier
+uncorrelated legacy notification.
 
-`SetMode` returns a typed result carrying `requested`, `effective`, and
-`confirmed`. `SessionManager.applyProfileSessionLayers` and
-`applyRuntimeSessionLayers` log `set profile mode on ACP session` only for a
-confirmed exact match. A clamp or an unconfirmed result logs at Warn and records
-a session-visible warning message through the existing session message path.
+All consumers receive the same authoritative mode. This includes mode events,
+settings snapshots, lifecycle caches, persistence, and the desktop/mobile selector.
+A reset must not write the requested mode into its cache after an unconfirmed
+response. An unmet explicit start mode stops prompt dispatch and records the
+reason. A session without an explicit requested mode retains provider defaults.
 
 ### Attribution
 
@@ -389,19 +361,12 @@ or on network access. Backend integration coverage asserts the same contract at
 
 ## Failure modes
 
-- A provider that never publishes `current_mode_update` produces an unconfirmed
-  mode result. Kandev warns and continues with the session; it does not fail the
-  launch, because the mode may still have applied.
-- An agent with no declared initial-mode channel keeps the post-creation switch.
-  Its mode is recorded as best-effort, so the absence of a channel is visible
-  rather than presented as delivery.
-- A per-session settings overlay that cannot be created or installed is never
-  reported as delivered. The session records the preparation reason and does
-  not silently fall back to unselected host configuration. A launch whose
-  safety depends on the requested start mode fails before its first turn.
-- A requested mode the runtime disables for the process identity is reported as
-  unavailable. The session still starts, in the runtime's effective mode, with
-  that mode visible.
+- An authoritative settings response can confirm a mode without notifications.
+  Without either source, an explicit start mode remains unconfirmed and the
+  first prompt stays blocked with a visible reason.
+- A provider refusal or unavailable mode never triggers a shared-settings write.
+- A root process without the provider's required isolation cannot select bypass.
+  Kandev reports the unavailable mode instead of changing the isolation claim.
 - A provider that offers only reject options makes an `auto_approve` session
   block on a user prompt. That is the intended behavior: an unattended session
   stalls visibly rather than proceeding on a denial.
@@ -426,3 +391,6 @@ or on network access. Backend integration coverage asserts the same contract at
   records the initial implementation.
 - [PR #3886 remediation plan](../../../plans/agent-permission-pr3886-remediation/plan.md)
   owns the start-mode transfer, ACP timing, audit, and phone corrections.
+
+- [Session-control replacement plan](../../../plans/agent-permission-session-controls/plan.md)
+  supersedes automatic mode overlays and completes config-option confirmation.

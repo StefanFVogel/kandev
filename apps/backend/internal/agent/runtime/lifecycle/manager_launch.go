@@ -1053,46 +1053,7 @@ func (m *Manager) launchBuildExecutorRequest(ctx context.Context, executionID st
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build launch environment: %w", err)
 	}
-
-	// Give the agent process the mode it should start in. The post-creation
-	// session/set_mode below stays as the path for later switches and for
-	// agents without a declared channel.
-	requestedMode := ""
-	if reqWithWorktree.ACPSessionID == "" {
-		// A resumed ACP session restores its mode through LoadSession. It has
-		// no new first turn that needs an executor startup setting.
-		requestedMode = m.launchSessionMode(ctx, reqWithWorktree, profileInfo)
-	}
-	var initialMode initialModeOutcome
-	// A resumed session keeps the configuration its executor already carries,
-	// and runs no environment preparation to report against.
-	retainsExistingConfiguration := requestedMode != "" &&
-		(reqWithWorktree.PreviousExecutionID != "" || reqWithWorktree.WorkspaceReuseRequired)
-	if retainsExistingConfiguration {
-		initialMode = initialModeOutcome{
-			Mode:   requestedMode,
-			Reason: "an existing executor session retains its startup configuration",
-		}
-	} else {
-		initialMode = m.applyInitialMode(env, executionID, agentConfig, requestedMode, reqWithWorktree.ExecutorType)
-	}
-	if initialMode.Mode != "" && initialMode.Request == nil {
-		m.logger.Warn("session mode will only be applied after the session starts",
-			zap.String("execution_id", executionID),
-			zap.String("mode", initialMode.Mode),
-			zap.String("reason", initialMode.Reason))
-		// Report only what an operator can act on: a mode this agent could
-		// have started in and did not. An agent that declares no start-mode
-		// channel always applies its mode after session/new, and a resumed
-		// session keeps the configuration its executor already carries, so
-		// neither is a preparation warning. Both would otherwise attach to
-		// every launch and leave the preparation panel reporting warnings it
-		// cannot explain.
-		if !retainsExistingConfiguration && declaresStartModeChannel(agentConfig, requestedMode) {
-			m.reportInitialModeWarning(onProgress, reqWithWorktree.TaskID, reqWithWorktree.SessionID,
-				initialMode.Mode, initialMode.Reason)
-		}
-	}
+	applyContainerAgentEnvironment(env, agentConfig, models.ExecutorType(reqWithWorktree.ExecutorType))
 
 	acpMcpServers, err := m.resolveMcpServersWithParams(ctx, executionProfileID(reqWithWorktree), reqWithWorktree.Metadata, agentConfig)
 	if err != nil {
@@ -1181,7 +1142,6 @@ func (m *Manager) launchBuildExecutorRequest(ctx context.Context, executionID st
 		AutoApprovePermissionsOverride: autoApproveOverride,
 		Metadata:                       metadata,
 		AgentConfig:                    agentConfig,
-		InitialMode:                    initialMode.Request,
 		ApprovedSecretEnvKeys:          append([]string(nil), reqWithWorktree.ApprovedSecretEnvKeys...),
 		McpServers:                     mcpServers,
 		PreviousExecutionID:            reqWithWorktree.PreviousExecutionID,
@@ -1230,35 +1190,24 @@ func (m *Manager) launchBuildExecutorRequest(ctx context.Context, executionID st
 
 	execInstance, err := rt.CreateInstance(launchCtx, execReq)
 	if err != nil {
-		if execReq.InitialMode != nil {
-			execReq.InitialMode.Reason = err.Error()
-			m.reportInitialModeWarning(onProgress, reqWithWorktree.TaskID, reqWithWorktree.SessionID,
-				execReq.InitialMode.Mode, execReq.InitialMode.Reason)
-		}
 		return nil, nil, nil, fmt.Errorf("failed to create execution: %w", err)
 	}
-	if execReq.InitialMode != nil {
-		if execReq.InitialMode.Delivered {
-			initialMode.Delivered = true
-			m.logger.Info("delivered session mode at start",
-				zap.String("execution_id", executionID),
-				zap.String("mode", execReq.InitialMode.Mode),
-				zap.String("config_dir", execReq.InitialMode.ConfigDir))
-		} else {
-			reason := execReq.InitialMode.Reason
-			if reason == "" {
-				reason = "executor did not confirm the agent-visible configuration file"
-				execReq.InitialMode.Reason = reason
-			}
-			m.logger.Warn("executor did not confirm session mode delivery",
-				zap.String("execution_id", executionID),
-				zap.String("mode", execReq.InitialMode.Mode),
-				zap.String("reason", reason))
-			m.reportInitialModeWarning(onProgress, reqWithWorktree.TaskID, reqWithWorktree.SessionID,
-				execReq.InitialMode.Mode, reason)
+	return execReq, execInstance, rt, nil
+}
+
+func applyContainerAgentEnvironment(env map[string]string, agentConfig agents.Agent, executorType models.ExecutorType) {
+	if env == nil || agentConfig == nil || !executorType.Runtime().IsContainerized() {
+		return
+	}
+	runtimeConfig := agentConfig.Runtime()
+	if runtimeConfig == nil {
+		return
+	}
+	for key, value := range runtimeConfig.ContainerEnv {
+		if _, exists := env[key]; !exists {
+			env[key] = value
 		}
 	}
-	return execReq, execInstance, rt, nil
 }
 
 func isDockerExecutorType(executorType string) bool {

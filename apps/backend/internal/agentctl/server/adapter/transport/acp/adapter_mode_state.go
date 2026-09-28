@@ -47,14 +47,22 @@ func (a *Adapter) noteCurrentMode(sessionID, mode string) bool {
 		return false
 	}
 	a.mu.Lock()
-	if sessionID != a.sessionID {
-		a.mu.Unlock()
+	updated := a.noteModeLocked(sessionID, mode, !a.modeChangeActive)
+	a.mu.Unlock()
+	return updated
+}
+
+func (a *Adapter) noteConfigModeSnapshotLocked(sessionID, mode string, correlatedModeResponse bool) bool {
+	return a.noteModeLocked(sessionID, mode, correlatedModeResponse)
+}
+
+func (a *Adapter) noteModeLocked(sessionID, mode string, clearUncertainty bool) bool {
+	if sessionID == "" || mode == "" || sessionID != a.sessionID || a.closed {
 		return false
 	}
 	a.currentModeID = mode
 	a.modeSessionID = sessionID
-	if !a.modeChangeActive {
-		// An idle report closes the uncertainty left by an earlier timeout.
+	if clearUncertainty {
 		a.modeOutcomeUncertain = false
 	}
 	a.modeObservationGeneration++
@@ -62,8 +70,21 @@ func (a *Adapter) noteCurrentMode(sessionID, mode string) bool {
 		close(a.modeObserved)
 	}
 	a.modeObserved = make(chan struct{})
-	a.mu.Unlock()
 	return true
+}
+
+// resetSessionModeLocked drops observations and mode choices scoped to the
+// session being replaced. The caller holds a.mu.
+func (a *Adapter) resetSessionModeLocked() {
+	a.availableModes = nil
+	a.currentModeID = ""
+	a.modeSessionID = ""
+	a.modeOutcomeUncertain = false
+	a.modeObservationGeneration++
+	if a.modeObserved != nil {
+		close(a.modeObserved)
+	}
+	a.modeObserved = make(chan struct{})
 }
 
 func (a *Adapter) beginModeChange() (generation uint64, uncertain bool) {

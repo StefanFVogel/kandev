@@ -1,6 +1,6 @@
 # ADR-2026-09-25-session-mode-configuration-boundary: Keep start-mode overlays separate from configuration transfer
 
-**Status:** accepted
+**Status:** superseded by [ADR-2026-09-27-session-permissions-without-settings-mutation](2026-09-27-session-permissions-without-settings-mutation.md)
 **Date:** 2026-09-25
 **Area:** backend
 

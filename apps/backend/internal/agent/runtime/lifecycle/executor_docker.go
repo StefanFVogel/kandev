@@ -298,9 +298,6 @@ func (r *DockerExecutor) tryReconnect(ctx context.Context, dockerClient *docker.
 // paths into agent state DBs and broke resume on codex.
 func (r *DockerExecutor) seedSessionDir(ctx context.Context, req *ExecutorCreateRequest) error {
 	if req.AgentConfig == nil || r.kandevHomeDir == "" {
-		if req.InitialMode != nil {
-			return fmt.Errorf("initial mode cannot be installed without an agent session directory")
-		}
 		return nil
 	}
 	instanceRoot := InstanceSessionRoot(r.kandevHomeDir, req.InstanceID)
@@ -319,11 +316,6 @@ func (r *DockerExecutor) seedSessionDir(ctx context.Context, req *ExecutorCreate
 			zap.String("instance_id", req.InstanceID),
 			zap.String("agent_id", req.AgentConfig.ID()),
 			zap.Error(err))
-	}
-	if req.InitialMode != nil {
-		if err := installInitialModeLocally(req, instanceRoot); err != nil {
-			return fmt.Errorf("install start mode: %w", err)
-		}
 	}
 	return nil
 }

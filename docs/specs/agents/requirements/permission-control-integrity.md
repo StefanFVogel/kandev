@@ -20,11 +20,10 @@ Three observed consequences:
 - An enabled `cli_flag` is appended to the ACP bridge process. The bridge does
   not forward unrecognized arguments to the agent CLI it wraps, so the flag
   never reaches the process whose behavior the user intended to change.
-- A profile `mode` is never supplied when the agent session is created. The
-  agent process starts in its own default mode and Kandev switches afterwards
-  with `session/set_mode`. A mid-session switch is an instruction-level change
-  for some providers; the enforcement the process started with does not
-  necessarily follow it.
+- The original report associated permission refusals with the startup mode.
+  That report did not establish that ACP cannot change enforcement. The reviewed
+  Claude bridge calls the SDK permission-mode API. The revised contract uses
+  that session API before the first prompt.
 - That switch is then written and logged as applied. Kandev neither reads the
   mode the agent reports back nor records which of the profile mode, a persisted
   session mode, and a workflow-step mode won, so a clamped, overridden, or
@@ -69,16 +68,16 @@ confirms it, and must make the winning source of the effective mode visible.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.4:** The effective session mode records which source won: the agent profile, a persisted session runtime override, or a workflow-step mode action. That attribution is available on the session and in structured logs.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.5:** **GIVEN** an agent that does not offer `bypassPermissions`, **WHEN** a profile requests it, **THEN** the session reports the effective mode with a warning and does not log the requested mode as applied.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.6:** **GIVEN** a session whose persisted runtime mode differs from its profile mode, **WHEN** the session launches, **THEN** the effective mode names the persisted override as the winning source.
-- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.7:** The effective session mode is delivered to the agent through the agent's declared initial-mode channel before the session's first turn, not only by a mode switch issued after the session exists.
-- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.8:** Initial-mode delivery writes only into per-session agent state that Kandev owns. It never modifies the user's shared agent configuration on the host.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.7:** The effective session mode is delivered to the agent before the first prompt through a supported session or process control. A session API call after session creation can satisfy this criterion.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.8:** The default initial-mode path changes only session or process state. It never modifies the user's shared agent settings.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.9:** When the runtime refuses a mode for the launched process identity rather than for the session, the session reports the mode as unavailable with the reason. It does not run in a different mode silently.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.10:** **GIVEN** a profile requesting an unattended permission mode, **WHEN** a session starts, **THEN** the launched agent process is configured with that mode from its first turn.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.11:** **GIVEN** an executor whose process identity disables the requested mode in the agent runtime, **WHEN** a session starts, **THEN** Kandev either makes the mode available for that executor or reports it as unavailable with the reason.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.12:** A start mode does not copy host agent settings or credentials into an isolated executor unless the executor profile selected the applicable configuration or authentication bundle. An unselected host permission rule cannot change the launched agent.
-- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.13:** For every executor on which Kandev reports a start mode as delivered, the launched agent can read the generated settings file at its configured path before its first turn. If transfer or preparation fails, Kandev reports the mode as undelivered.
-- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.14:** When an opted-in portable settings bundle and a start mode target the same file, the agent reads the selected bundle's other settings and the requested start mode. A later transfer cannot erase the mode.
-- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.15:** A valid JSON `null` or another non-object settings root cannot crash session preparation. Kandev either creates a valid session-owned object with the requested mode or reports a preparation error.
-- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.16:** A mode report received during `session/set_mode`, including before the call returns, determines the confirmed effective mode for that request. A report from before that request cannot confirm it. Concurrent requests cannot attribute one report to both requests.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.13:** Retired by REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-007. The automatic settings-file delivery path is no longer intended behavior.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.14:** Retired by REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-007. The automatic settings-file delivery path is no longer intended behavior.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.15:** Retired by REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-007. The automatic settings-file delivery path is no longer intended behavior.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.16:** A mode report or authoritative settings response received during a mode request, including before the call returns, determines the confirmed effective mode for that request. A report from before that request cannot confirm it. Concurrent requests cannot attribute one report to both requests.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.17:** A start-mode path must not silently invalidate the agent's configured authentication or a user-selected agent configuration directory. If Kandev cannot preserve those inputs for an executor and authentication method, it reports start-mode delivery as unavailable with the reason.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-002.18:** On a phone or coarse pointer, the mode mismatch warning and both mode names are available through a visible touch control. The same mode choices remain available as on desktop.
 
@@ -146,6 +145,25 @@ rather than a misplaced file.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-006.3:** The mismatch is detectable without running an agent, so it does not present as a permission failure.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-006.4:** **GIVEN** a workspace with two repositories and a repository-scoped seed intended for the agent, **WHEN** a session starts, **THEN** either the agent reads the seeded file or Kandev reports that the seed does not reach the agent in this layout.
 - **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-006.5:** **GIVEN** a workspace with one repository, **WHEN** a session starts, **THEN** the existing seeding behavior is unchanged.
+
+### REQ-AGENTS-PERMISSION-CONTROL-INTEGRITY-007: Session controls preserve user settings
+
+**Intent:** A task mode must not change the settings of unrelated Claude sessions.
+A Kandev update must not grant permission to change shared user settings.
+
+#### Acceptance criteria
+
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-007.1:** Kandev shall prefer a supported session API for permission modes. It shall complete the mode request before the first prompt.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-007.2:** The default mode path shall not write agent settings files or change the agent settings directory. This applies to new and existing profiles.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-007.3:** Kandev shall use the mode value returned by the agent. A successful response containing session settings can confirm that value without a separate mode notification.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-007.4:** When an explicit start mode is unavailable or unconfirmed, Kandev shall report the reason and hold the first prompt. It shall not silently change shared settings.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-007.5:** Two concurrent sessions with different modes shall retain their own modes. A mode request shall not change shared settings or another session's selected mode.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-007.6:** Any future fallback that changes shared user settings shall require a separate agent-profile option. The option shall default to disabled for new and existing profiles. Only a manual user action can enable it. Mode selection and automatic approval shall not enable it.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-007.7:** Such a fallback shall state its shared scope before the user enables it. The user shall be able to disable it. Disabling it shall stop subsequent Kandev settings mutations.
+- **AC-AGENTS-PERMISSION-CONTROL-INTEGRITY-007.8:** Resume and context reset shall restore the selected mode through a supported session control before the next prompt. Authentication and explicit settings-directory selections shall remain unchanged.
+
+No shared-settings fallback ships in this revision. Criteria 007.6 and 007.7
+constrain a future fallback if evidence shows that it is necessary.
 
 ## Out of scope
 
